@@ -23,5 +23,9 @@ add_custom_command(TARGET OnePointFourFourMBGame POST_BUILD
 )
 
 if(MSVC)
-    target_compile_options(OnePointFourFourMBGame PRIVATE /W4 /permissive-)
+    target_compile_options(OnePointFourFourMBGame PRIVATE
+        /W4
+        /permissive-
+        /utf-8
+    )
 endif()

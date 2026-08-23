@@ -1,9 +1,11 @@
 //#define NOMINMAX
 #include <windows.h>
+#include <windowsx.h>
 #include <gdiplus.h>
 
 #include <algorithm>
 #include <cmath>
+#include <cwchar>
 #include <string>
 
 namespace {
@@ -25,18 +27,48 @@ constexpr double kFloorHeightScale = 0.30;
 constexpr int kDefaultVanishingPointX = kPlayAreaSize / 2;
 constexpr int kDefaultVanishingPointY = kPlayAreaSize / 2;
 
-// 도로 보호블록의 여백과 원근 간격을 조절하는 설정값이다.
-constexpr int kRoadHorizontalGapY = 342;
-constexpr int kRoadHorizontalGapHeight = 9;
-constexpr double kRoadJointTopSpacing = 54.0;
-constexpr double kRoadJointBottomSpacing = 58.0;
-constexpr double kRoadJointTopHalfWidth = 4.0;
-constexpr double kRoadJointBottomHalfWidth = 7.0;
+// 재료통들의 직사각형 배치와 여백을 조절하는 설정값이다.
+constexpr int kMaterialBinTop = 294;
+constexpr int kMaterialBinFirstRowBottom = 342;
+constexpr int kMaterialBinRowGap = 9;
+constexpr int kMaterialBinColumnGap = 9;
+constexpr int kMaterialBinBorderWidth = 2;
+constexpr int kPngSocketSize = 18;
+constexpr double kPngSocketHoverScale = 1.05;
+constexpr double kPngSocketEasingSpeed = 0.20;
+constexpr int kMaterialBinVerticalOffset = 5;
 
-// PNG 소켓이 회색 블록 안쪽에서 차지하는 여백과 높이이다.
-constexpr double kMaterialSocketInset = 0.28;
-constexpr int kMaterialSocketTopMargin = 6;
-constexpr int kMaterialSocketHeight = 18;
+// 테이블 상호작용 영역과 이징 애니메이션 설정값이다.
+constexpr int kTableHoverTop = 275;
+constexpr int kTableHoverBottom = 400;
+constexpr double kTableLiftDistance = 10.0;
+constexpr double kTableEasingSpeed = 0.18;
+constexpr int kTableTop = 278;
+constexpr int kCookingTableY = 150;
+constexpr double kCookingTableLift = kTableTop - kCookingTableY;
+constexpr double kCookingAnimationSeconds = 1.0;
+constexpr int kTableHorizontalExtension = 15;
+constexpr int kTableBottomExtension = 5;
+constexpr int kTableBorderWidth = 4;
+constexpr int kTableHiddenExtension =
+    static_cast<int>(kCookingTableLift) + 15;
+constexpr int kGlassDomeY = 120;
+constexpr int kGlassDomeHeight = 160;
+constexpr BYTE kGlassDomeOpacity = 42;
+constexpr int kCuttingBoardX = 120;
+constexpr int kCuttingBoardCookingY = 300;
+constexpr int kCuttingBoardWidth = 160;
+constexpr int kCuttingBoardHeight = 78;
+constexpr int kCuttingBoardBorderWidth = 2;
+constexpr int kMaterialCloneSize = 24;
+constexpr int kMaximumMaterialClones = 64;
+constexpr int kResetButtonWidth = 50;
+constexpr int kResetButtonHeight = 30;
+constexpr int kResetButtonMargin = 10;
+constexpr int kResetButtonRadius = 8;
+constexpr double kResetButtonFadeSpeed = 0.08;
+constexpr UINT_PTR kAnimationTimerId = 1;
+constexpr UINT kAnimationFrameMilliseconds = 16;
 
 constexpr COLORREF kLetterboxColor = RGB(0x00, 0x00, 0x00);
 constexpr COLORREF kTileGreen = RGB(0xa8, 0xcb, 0xa9);
@@ -49,10 +81,14 @@ constexpr COLORREF kShelfDarkColor = RGB(0x7c, 0x7c, 0x7c);
 constexpr COLORREF kShelfColor = RGB(0x89, 0x89, 0x89);
 constexpr COLORREF kShelfLightColor = RGB(0xa6, 0xa6, 0xa6);
 constexpr COLORREF kMaterialColor = RGB(0xea, 0xe1, 0xd0);
-constexpr COLORREF kRoadColor = RGB(0x8d, 0x8d, 0x8d);
-constexpr COLORREF kRoadLineColor = RGB(0x50, 0x3d, 0x2a);
-constexpr COLORREF kCurbColor = RGB(0x88, 0x7b, 0x6e);
+constexpr COLORREF kMaterialBinColor = RGB(0x8d, 0x8d, 0x8d);
+constexpr COLORREF kMaterialBinBorderColor = RGB(0xbf, 0xbf, 0xbf);
 constexpr COLORREF kPlatformColor = RGB(0x5c, 0x3e, 0x1f);
+constexpr COLORREF kTableBorderColor = RGB(0x42, 0x29, 0x10);
+constexpr COLORREF kCuttingBoardColor = RGB(0xb6, 0xa1, 0x8c);
+constexpr COLORREF kCuttingBoardBorderColor = RGB(0x7c, 0x65, 0x4e);
+constexpr COLORREF kResetButtonColor = RGB(0x94, 0xc2, 0x93);
+constexpr COLORREF kClonePlaceholderColor = RGB(0xff, 0xea, 0x00);
 
 constexpr int kMaterialBinColumns = 7;
 constexpr int kMaterialBinRows = 2;
@@ -76,6 +112,42 @@ constexpr wchar_t kMaterialImagePaths[kMaterialBinCount][64] = {
 
 // 소실점 좌표는 플레이 영역의 왼쪽 위를 (0, 0)으로 삼는다.
 POINT gVanishingPoint{kDefaultVanishingPointX, kDefaultVanishingPointY};
+POINT gMouseDesignPosition{};
+bool gHasMousePosition = false;
+bool gIsTrackingMouse = false;
+bool gIsTableHovered = false;
+double gTableLift = 0.0;
+enum class CookingState {
+    NonCooking,
+    Cooking
+};
+CookingState gCookingState = CookingState::NonCooking;
+
+// NPC의 최초 주문 진행 단계를 나타내며 조리상태와는 독립적으로 관리한다.
+enum class NpcOrderState {
+    BeforeOrder, // NPC 주문 전: NPC 입장 애니메이션이 진행되는 상태
+    Ordering,    // NPC 주문 중: NPC가 최초 주문 대사를 말하는 상태
+    AfterOrder   // NPC 주문 끝남: 최초 주문 대사가 끝난 이후의 모든 상태
+};
+NpcOrderState gNpcOrderState = NpcOrderState::BeforeOrder;
+
+// 추후 AfterOrder 상태에서 재료 호버 조건에 따라 추가 나레이션을 연결한다.
+CookingState gCookingTransitionTargetState = CookingState::NonCooking;
+bool gIsCookingTransitionRunning = false;
+double gCookingTransitionStartLift = 0.0;
+double gCookingTransitionTargetLift = 0.0;
+ULONGLONG gCookingTransitionStartTime = 0;
+int gHoveredPngSocket = -1;
+double gPngSocketScales[kMaterialBinCount]{};
+struct MaterialClone {
+    int materialIndex;
+    int x;
+    int y;
+};
+MaterialClone gMaterialClones[kMaximumMaterialClones]{};
+int gMaterialCloneCount = 0;
+unsigned int gRandomState = 0x144u;
+double gResetButtonOpacity = 0.0;
 ULONG_PTR gGdiplusToken = 0;
 Gdiplus::Image* gMaterialImages[kMaterialBinCount]{};
 
@@ -186,6 +258,48 @@ void FillPolygon(HDC dc, POINT* points, int pointCount, COLORREF color) {
     DeleteObject(brush);
 }
 
+void FillRoundedRect(
+    HDC dc, const RECT& rect, int radius, COLORREF color) {
+    const HBRUSH brush = CreateSolidBrush(color);
+    const HGDIOBJ oldBrush = SelectObject(dc, brush);
+    const HGDIOBJ oldPen = SelectObject(dc, GetStockObject(NULL_PEN));
+    RoundRect(
+        dc,
+        rect.left,
+        rect.top,
+        rect.right,
+        rect.bottom,
+        radius,
+        radius);
+    SelectObject(dc, oldPen);
+    SelectObject(dc, oldBrush);
+    DeleteObject(brush);
+}
+
+COLORREF BlendColor(COLORREF background, COLORREF foreground, double opacity) {
+    const double amount = (std::max)(0.0, (std::min)(1.0, opacity));
+    const auto blendChannel = [amount](BYTE from, BYTE to) {
+        return static_cast<BYTE>(std::lround(from + (to - from) * amount));
+    };
+    return RGB(
+        blendChannel(GetRValue(background), GetRValue(foreground)),
+        blendChannel(GetGValue(background), GetGValue(foreground)),
+        blendChannel(GetBValue(background), GetBValue(foreground)));
+}
+
+unsigned int NextRandom() {
+    gRandomState = gRandomState * 1664525u + 1013904223u;
+    return gRandomState;
+}
+
+int RandomRange(int minimum, int maximum) {
+    if (maximum <= minimum) {
+        return minimum;
+    }
+    return minimum + static_cast<int>(
+        NextRandom() % static_cast<unsigned int>(maximum - minimum + 1));
+}
+
 POINT ProjectFloorPoint(const Layout& layout, int column, int row) {
     const double rowRatio = static_cast<double>(row) / kFloorRows;
     const double startY = gVanishingPoint.y
@@ -219,151 +333,209 @@ void DrawPerspectiveFloor(HDC dc, const Layout& layout) {
     }
 }
 
-void DrawRoad(HDC dc, const Layout& layout) {
-    constexpr int roadTop = 294;
-    const RECT road = LogicalRect(
-        layout, kPlayAreaX, kPlayAreaY + roadTop,
-        kPlayAreaSize, kPlayAreaSize - roadTop);
-    FillSolid(dc, road, kRoadColor);
+RECT MaterialBinRect(const Layout& layout, int row, int column) {
+    const double totalGap = kMaterialBinColumnGap
+        * (kMaterialBinColumns - 1);
+    const double binWidth = (kPlayAreaSize - totalGap) / kMaterialBinColumns;
+    const double left = kPlayAreaX
+        + column * (binWidth + kMaterialBinColumnGap);
+    const double right = left + binWidth;
+    const int rowTop = ((row == 0)
+        ? kMaterialBinTop
+        : kMaterialBinFirstRowBottom + kMaterialBinRowGap)
+        + kMaterialBinVerticalOffset;
+    const int rowBottom = ((row == 0)
+        ? kMaterialBinFirstRowBottom
+        : kPlayAreaSize)
+        + kMaterialBinVerticalOffset;
+    const POINT topLeft = LogicalPoint(layout, left, kPlayAreaY + rowTop);
+    const POINT bottomRight = LogicalPoint(layout, right, kPlayAreaY + rowBottom);
+    return {topLeft.x, topLeft.y, bottomRight.x, bottomRight.y};
+}
 
-    // 도로의 가로 이음매는 화면 아래로 갈수록 간격이 넓어진다.
-    FillSolid(dc, LogicalRect(
-        layout,
-        kPlayAreaX,
-        kPlayAreaY + kRoadHorizontalGapY,
-        kPlayAreaSize,
-        kRoadHorizontalGapHeight),
-        kRoadLineColor);
+int HitTestPngSocket() {
+    if (!gHasMousePosition
+        || !gIsTrackingMouse
+        || gIsCookingTransitionRunning
+        || gCookingState != CookingState::Cooking) {
+        return -1;
+    }
 
-    // 세로 이음매는 중앙을 비운 반 칸 오프셋으로 여섯 개를 배치한다.
-    for (int line = -3; line < 3; ++line) {
-        const double lineOffset = line + 0.5;
-        const double bottomX = kPlayAreaX + kPlayAreaSize * 0.5
-            + lineOffset * kRoadJointBottomSpacing;
-        const double topX = kPlayAreaX + kPlayAreaSize * 0.5
-            + lineOffset * kRoadJointTopSpacing;
-        POINT joint[] = {
-            LogicalPoint(layout, topX - kRoadJointTopHalfWidth, kPlayAreaY + roadTop),
-            LogicalPoint(layout, topX + kRoadJointTopHalfWidth, kPlayAreaY + roadTop),
-            LogicalPoint(layout, bottomX + kRoadJointBottomHalfWidth, kPlayAreaY + kPlayAreaSize),
-            LogicalPoint(layout, bottomX - kRoadJointBottomHalfWidth, kPlayAreaY + kPlayAreaSize)
-        };
-        FillPolygon(dc, joint, 4, kRoadLineColor);
+    const double totalGap = kMaterialBinColumnGap
+        * (kMaterialBinColumns - 1);
+    const double binWidth = (kPlayAreaSize - totalGap) / kMaterialBinColumns;
+    for (int row = 0; row < kMaterialBinRows; ++row) {
+        const int rowTop = ((row == 0)
+            ? kMaterialBinTop
+            : kMaterialBinFirstRowBottom + kMaterialBinRowGap)
+            + kMaterialBinVerticalOffset;
+        const int rowBottom = ((row == 0)
+            ? kMaterialBinFirstRowBottom
+            : kPlayAreaSize)
+            + kMaterialBinVerticalOffset;
+        const double centerY = kPlayAreaY
+            + (rowTop + rowBottom) * 0.5 - gTableLift;
+
+        for (int column = 0; column < kMaterialBinColumns; ++column) {
+            const double left = kPlayAreaX
+                + column * (binWidth + kMaterialBinColumnGap);
+            const double centerX = left + binWidth * 0.5;
+            const double halfSize = kPngSocketSize * 0.5;
+            if (gMouseDesignPosition.x >= centerX - halfSize
+                && gMouseDesignPosition.x <= centerX + halfSize
+                && gMouseDesignPosition.y >= centerY - halfSize
+                && gMouseDesignPosition.y <= centerY + halfSize) {
+                return row * kMaterialBinColumns + column;
+            }
+        }
+    }
+    return -1;
+}
+
+void DrawMaterialBins(HDC dc, const Layout& layout) {
+    // 재료통들은 원근 변형 없이 같은 크기의 직사각형으로 배치한다.
+    for (int row = 0; row < kMaterialBinRows; ++row) {
+        for (int column = 0; column < kMaterialBinColumns; ++column) {
+            const RECT bin = MaterialBinRect(layout, row, column);
+            FillSolid(dc, bin, kMaterialBinBorderColor);
+
+            // 재료통의 바깥 크기를 유지하면서 안쪽으로 2px 테두리를 만든다.
+            const int borderWidth = static_cast<int>(
+                std::lround(kMaterialBinBorderWidth * layout.scale));
+            const RECT inner{
+                bin.left + borderWidth,
+                bin.top + borderWidth,
+                bin.right - borderWidth,
+                bin.bottom - borderWidth
+            };
+            FillSolid(dc, inner, kMaterialBinColor);
+        }
     }
 }
 
-double RoadBoundaryX(int boundary, double y) {
-    constexpr int roadTop = 294;
-    if (boundary == 0) {
-        return kPlayAreaX;
-    }
-    if (boundary == kMaterialBinColumns) {
-        return kPlayAreaX + kPlayAreaSize;
-    }
-
-    const double depth = (y - roadTop) / (kPlayAreaSize - roadTop);
-    const double lineOffset = boundary - 3.5;
-    const double topX = kPlayAreaX + kPlayAreaSize * 0.5
-        + lineOffset * kRoadJointTopSpacing;
-    const double bottomX = kPlayAreaX + kPlayAreaSize * 0.5
-        + lineOffset * kRoadJointBottomSpacing;
-    return topX + (bottomX - topX) * depth;
-}
-
-void DrawMaterialImageSlot(HDC dc, int binIndex, POINT* socket) {
-    // 재료 이미지 삽입 위치: PNG8 이미지를 회색 블록과 같은 사다리꼴로 투영한다.
-    FillPolygon(dc, socket, 4, kTileWhite);
-    if (binIndex >= 0
-        && binIndex < kMaterialBinCount
-        && gMaterialImages[binIndex] != nullptr) {
+void DrawMaterialImage(HDC dc, int materialIndex, const RECT& area) {
+    if (materialIndex >= 0
+        && materialIndex < kMaterialBinCount
+        && gMaterialImages[materialIndex] != nullptr) {
         Gdiplus::Graphics graphics(dc);
         graphics.SetInterpolationMode(Gdiplus::InterpolationModeNearestNeighbor);
         graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
-        const UINT sourceWidth = gMaterialImages[binIndex]->GetWidth();
-        const UINT sourceHeight = gMaterialImages[binIndex]->GetHeight();
-
-        // 한 줄씩 폭을 달리해 사각 PNG를 원근 사다리꼴로 변형한다.
-        for (UINT sourceY = 0; sourceY < sourceHeight; ++sourceY) {
-            const double ratio = (sourceY + 0.5) / sourceHeight;
-            const double leftX = socket[0].x
-                + (socket[3].x - socket[0].x) * ratio;
-            const double rightX = socket[1].x
-                + (socket[2].x - socket[1].x) * ratio;
-            const double topY = socket[0].y;
-            const double bottomY = socket[3].y;
-            const double rowTop = topY
-                + (bottomY - topY) * sourceY / sourceHeight;
-            const double rowBottom = topY
-                + (bottomY - topY) * (sourceY + 1) / sourceHeight;
-            graphics.DrawImage(
-                gMaterialImages[binIndex],
-                Gdiplus::RectF(
-                    static_cast<Gdiplus::REAL>(leftX),
-                    static_cast<Gdiplus::REAL>(rowTop),
-                    static_cast<Gdiplus::REAL>(rightX - leftX),
-                    static_cast<Gdiplus::REAL>(rowBottom - rowTop + 0.5)),
-                0,
-                static_cast<Gdiplus::REAL>(sourceY),
-                static_cast<Gdiplus::REAL>(sourceWidth),
-                1.0f,
-                Gdiplus::UnitPixel);
-        }
+        graphics.DrawImage(
+            gMaterialImages[materialIndex],
+            Gdiplus::Rect(
+                area.left,
+                area.top,
+                area.right - area.left,
+                area.bottom - area.top));
     }
-
-    POINT outline[] = {socket[0], socket[1], socket[2], socket[3], socket[0]};
-    const HPEN framePen = CreatePen(PS_SOLID, 1, kShelfDarkColor);
-    const HGDIOBJ oldPen = SelectObject(dc, framePen);
-    Polyline(dc, outline, 5);
-    SelectObject(dc, oldPen);
-    DeleteObject(framePen);
 }
 
-void DrawRoadMaterialSockets(HDC dc, const Layout& layout) {
-    constexpr int rowTops[kMaterialBinRows] = {294, 351};
-    constexpr int rowBottoms[kMaterialBinRows] = {342, kPlayAreaSize};
+void DrawPngSocket(HDC dc, int binIndex, const RECT& socket) {
+    // PNG8 이미지는 원근 변형 없이 정방형 소켓 전체에 그대로 그린다.
+    FillSolid(dc, socket, kTileWhite);
+    DrawMaterialImage(dc, binIndex, socket);
+    const HBRUSH frameBrush = CreateSolidBrush(kShelfDarkColor);
+    FrameRect(dc, &socket, frameBrush);
+    DeleteObject(frameBrush);
+}
 
-    // 기존 회색 오브젝트 14개의 윗면 중앙에 이미지 소켓만 겹쳐 그린다.
+void DrawPngSockets(HDC dc, const Layout& layout) {
+    // 각 PNG소켓은 재료통의 정중앙에 정방형으로 배치한다.
     for (int row = 0; row < kMaterialBinRows; ++row) {
-        const double socketTop = rowTops[row] + kMaterialSocketTopMargin;
-        const double socketBottom = (std::min)(
-            static_cast<double>(rowBottoms[row]),
-            socketTop + kMaterialSocketHeight);
         for (int column = 0; column < kMaterialBinColumns; ++column) {
             const int binIndex = row * kMaterialBinColumns + column;
-            const double topLeft = RoadBoundaryX(column, socketTop);
-            const double topRight = RoadBoundaryX(column + 1, socketTop);
-            const double bottomLeft = RoadBoundaryX(column, socketBottom);
-            const double bottomRight = RoadBoundaryX(column + 1, socketBottom);
-            double socketTopLeft = topLeft
-                + (topRight - topLeft) * kMaterialSocketInset;
-            double socketTopRight = topRight
-                - (topRight - topLeft) * kMaterialSocketInset;
-            double socketBottomLeft = bottomLeft
-                + (bottomRight - bottomLeft) * kMaterialSocketInset;
-            double socketBottomRight = bottomRight
-                - (bottomRight - bottomLeft) * kMaterialSocketInset;
-
-            POINT socket[] = {
-                LogicalPoint(
-                    layout,
-                    socketTopLeft,
-                    kPlayAreaY + socketTop),
-                LogicalPoint(
-                    layout,
-                    socketTopRight,
-                    kPlayAreaY + socketTop),
-                LogicalPoint(
-                    layout,
-                    socketBottomRight,
-                    kPlayAreaY + socketBottom),
-                LogicalPoint(
-                    layout,
-                    socketBottomLeft,
-                    kPlayAreaY + socketBottom)
+            const RECT bin = MaterialBinRect(layout, row, column);
+            const int socketSize = static_cast<int>(
+                std::lround(
+                    kPngSocketSize
+                    * gPngSocketScales[binIndex]
+                    * layout.scale));
+            const int centerX = (bin.left + bin.right) / 2;
+            const int centerY = (bin.top + bin.bottom) / 2;
+            const RECT socket{
+                centerX - socketSize / 2,
+                centerY - socketSize / 2,
+                centerX - socketSize / 2 + socketSize,
+                centerY - socketSize / 2 + socketSize
             };
-            DrawMaterialImageSlot(dc, binIndex, socket);
+            DrawPngSocket(dc, binIndex, socket);
         }
     }
+}
+
+int CuttingBoardBaseY() {
+    return kCuttingBoardCookingY + static_cast<int>(kCookingTableLift);
+}
+
+void DrawCuttingBoardAndClones(HDC dc, const Layout& layout) {
+    const RECT board = LogicalRect(
+        layout,
+        kPlayAreaX + kCuttingBoardX,
+        kPlayAreaY + CuttingBoardBaseY(),
+        kCuttingBoardWidth,
+        kCuttingBoardHeight);
+    FillSolid(dc, board, kCuttingBoardBorderColor);
+    const int borderWidth = static_cast<int>(
+        std::lround(kCuttingBoardBorderWidth * layout.scale));
+    const RECT boardInner{
+        board.left + borderWidth,
+        board.top + borderWidth,
+        board.right - borderWidth,
+        board.bottom - borderWidth
+    };
+    FillSolid(dc, boardInner, kCuttingBoardColor);
+
+    // 복제된 재료 PNG는 도마의 이동 좌표를 따라가며 도마 안에서만 표시된다.
+    for (int index = 0; index < gMaterialCloneCount; ++index) {
+        const MaterialClone& clone = gMaterialClones[index];
+        const RECT imageArea = LogicalRect(
+            layout,
+            clone.x,
+            clone.y,
+            kMaterialCloneSize,
+            kMaterialCloneSize);
+        // PNG 복제 위치를 확인할 수 있도록 임시 노란색 박스를 먼저 그린다.
+        FillSolid(dc, imageArea, kClonePlaceholderColor);
+        DrawMaterialImage(dc, clone.materialIndex, imageArea);
+    }
+}
+
+void AddMaterialClone(int materialIndex) {
+    if (materialIndex < 0
+        || materialIndex >= kMaterialBinCount
+        || gMaterialCloneCount >= kMaximumMaterialClones) {
+        return;
+    }
+
+    constexpr int padding = 4;
+    const int boardLeft = kPlayAreaX + kCuttingBoardX;
+    const int boardTop = kPlayAreaY + CuttingBoardBaseY();
+    MaterialClone& clone = gMaterialClones[gMaterialCloneCount++];
+    clone.materialIndex = materialIndex;
+    clone.x = RandomRange(
+        boardLeft + padding,
+        boardLeft + kCuttingBoardWidth - padding - kMaterialCloneSize);
+    clone.y = RandomRange(
+        boardTop + padding,
+        boardTop + kCuttingBoardHeight - padding - kMaterialCloneSize);
+}
+
+RECT ResetButtonRect(const Layout& layout) {
+    return LogicalRect(
+        layout,
+        kPlayAreaX + kPlayAreaSize - kResetButtonMargin - kResetButtonWidth,
+        kPlayAreaY + kPlayAreaSize - kResetButtonMargin - kResetButtonHeight,
+        kResetButtonWidth,
+        kResetButtonHeight);
+}
+
+void DrawResetButton(HDC dc, const Layout& layout) {
+    const RECT button = ResetButtonRect(layout);
+    const int radius = static_cast<int>(
+        std::lround(kResetButtonRadius * layout.scale));
+    const COLORREF fadedColor = BlendColor(
+        kPlatformColor, kResetButtonColor, gResetButtonOpacity);
+    FillRoundedRect(dc, button, radius, fadedColor);
 }
 
 void DrawInterior(HDC dc, const Layout& layout) {
@@ -392,6 +564,13 @@ void DrawInterior(HDC dc, const Layout& layout) {
     FillSolid(dc, LogicalRect(
         layout, kPlayAreaX + 273, kPlayAreaY + 105, 127, 20), kWallTrimColor);
 
+    // 좌우 연두색 벽을 X=285, Y=98 지점과 같은 색상으로 통일한다.
+    FillSolid(dc, LogicalRect(
+        layout, kPlayAreaX, kPlayAreaY + 123, 127, 91), kWallTrimColor);
+    FillSolid(dc, LogicalRect(
+        layout, kPlayAreaX + 272, kPlayAreaY + 123, 128, 91),
+        kWallTrimColor);
+
     // 중앙 제작대와 재료 보관 영역은 원래의 수평 띠 형태를 유지한다.
     FillSolid(dc, LogicalRect(
         layout, kPlayAreaX + 127, kPlayAreaY + 107, 146, 18),
@@ -407,6 +586,78 @@ void DrawInterior(HDC dc, const Layout& layout) {
         kMaterialColor);
 }
 
+void DrawMousePosition(HDC dc, const Layout& layout) {
+    if (!gHasMousePosition) {
+        return;
+    }
+
+    const int playX = gMouseDesignPosition.x - kPlayAreaX;
+    const int playY = gMouseDesignPosition.y - kPlayAreaY;
+    wchar_t text[128]{};
+    swprintf_s(
+        text,
+        _countof(text),
+        L"화면 X:%ld Y:%ld  |  플레이 X:%d Y:%d",
+        gMouseDesignPosition.x,
+        gMouseDesignPosition.y,
+        playX,
+        playY);
+
+    const int fontHeight = (std::max)(
+        1, static_cast<int>(std::lround(15.0 * layout.scale)));
+    const HFONT font = CreateFont(
+        -fontHeight,
+        0,
+        0,
+        0,
+        FW_NORMAL,
+        FALSE,
+        FALSE,
+        FALSE,
+        DEFAULT_CHARSET,
+        OUT_DEFAULT_PRECIS,
+        CLIP_DEFAULT_PRECIS,
+        CLEARTYPE_QUALITY,
+        DEFAULT_PITCH | FF_DONTCARE,
+        L"맑은 고딕");
+    const HGDIOBJ oldFont = SelectObject(dc, font);
+    const int oldBackgroundMode = SetBkMode(dc, TRANSPARENT);
+    const COLORREF oldTextColor = SetTextColor(dc, RGB(0xff, 0xff, 0xff));
+    const POINT textPosition = LogicalPoint(layout, 10, kDesignHeight - 24);
+    TextOut(
+        dc,
+        textPosition.x,
+        textPosition.y,
+        text,
+        static_cast<int>(wcslen(text)));
+    SetTextColor(dc, oldTextColor);
+    SetBkMode(dc, oldBackgroundMode);
+    SelectObject(dc, oldFont);
+    DeleteObject(font);
+}
+
+double SmoothStep(double progress) {
+    const double clamped = (std::max)(0.0, (std::min)(1.0, progress));
+    return clamped * clamped * (3.0 - 2.0 * clamped);
+}
+
+void StartCookingTransition(CookingState targetState) {
+    gCookingTransitionTargetState = targetState;
+    gIsCookingTransitionRunning = true;
+    gCookingTransitionStartLift = gTableLift;
+    gCookingTransitionTargetLift = (targetState == CookingState::Cooking)
+        ? kCookingTableLift
+        : 0.0;
+    gCookingTransitionStartTime = GetTickCount64();
+    gIsTableHovered = false;
+    gHoveredPngSocket = -1;
+}
+
+bool IsCookingStateActive() {
+    return gCookingState == CookingState::Cooking
+        && !gIsCookingTransitionRunning;
+}
+
 void DrawGame(HDC dc, const RECT& client) {
     FillSolid(dc, client, kLetterboxColor);
 
@@ -419,22 +670,62 @@ void DrawGame(HDC dc, const RECT& client) {
         layout, kPlayAreaX, kPlayAreaY, kPlayAreaSize, kPlayAreaSize);
     DrawInterior(dc, layout);
 
-    // 넓어진 바닥이 플레이 영역 바깥의 레터박스를 침범하지 않도록 자른다.
-    const int savedDc = SaveDC(dc);
+    // 체크 바닥은 정적 배경에 두어 유리돔 이동 중에도 장면이 이어지게 한다.
+    const int floorDc = SaveDC(dc);
     IntersectClipRect(
         dc, playArea.left, playArea.top, playArea.right, playArea.bottom);
     DrawPerspectiveFloor(dc, layout);
-    RestoreDC(dc, savedDc);
+    RestoreDC(dc, floorDc);
 
-    // 체크 바닥 아래에 보도 경계와 도로를 레이어 순서대로 겹친다.
+    // 테이블과 재료통들을 하나의 그룹으로 묶어 위아래로 이동시킨다.
+    const int tableOffset = -static_cast<int>(
+        std::lround(gTableLift * layout.scale));
+    const int tableDc = SaveDC(dc);
+    IntersectClipRect(
+        dc, playArea.left, playArea.top, playArea.right, playArea.bottom);
+    SetViewportOrgEx(dc, 0, tableOffset, nullptr);
+
+    // 유리돔은 배경과 분리된 반투명 흰색 박스로 테이블과 함께 움직인다.
+    const RECT domeArea = LogicalRect(
+        layout,
+        kPlayAreaX,
+        kPlayAreaY + kGlassDomeY,
+        kPlayAreaSize,
+        kGlassDomeHeight);
+    FillTranslucent(
+        dc,
+        domeArea,
+        RGB(0xff, 0xff, 0xff),
+        kGlassDomeOpacity);
+
+    // 확장된 테이블 외곽을 먼저 칠하고 내부를 덮어 위쪽 테두리만 노출한다.
+    const int tableOuterX = kPlayAreaX - kTableHorizontalExtension;
+    const int tableOuterWidth = kPlayAreaSize + kTableHorizontalExtension * 2;
+    const int tableOuterHeight = kPlayAreaSize - kTableTop
+        + kTableHiddenExtension + kTableBottomExtension;
     FillSolid(dc, LogicalRect(
-        layout, kPlayAreaX, kPlayAreaY + 268, kPlayAreaSize, 10),
-        kCurbColor);
+        layout,
+        tableOuterX,
+        kPlayAreaY + kTableTop,
+        tableOuterWidth,
+        tableOuterHeight),
+        kTableBorderColor);
     FillSolid(dc, LogicalRect(
-        layout, kPlayAreaX, kPlayAreaY + 278, kPlayAreaSize, 16),
+        layout,
+        tableOuterX + kTableBorderWidth,
+        kPlayAreaY + kTableTop + kTableBorderWidth,
+        tableOuterWidth - kTableBorderWidth * 2,
+        tableOuterHeight - kTableBorderWidth * 2),
         kPlatformColor);
-    DrawRoad(dc, layout);
-    DrawRoadMaterialSockets(dc, layout);
+
+    DrawMaterialBins(dc, layout);
+    DrawPngSockets(dc, layout);
+    DrawCuttingBoardAndClones(dc, layout);
+    RestoreDC(dc, tableDc);
+
+    if (IsCookingStateActive() && gResetButtonOpacity > 0.001) {
+        DrawResetButton(dc, layout);
+    }
 
     // 최상단 암막은 플레이 영역과 레터박스 양쪽에 반투명하게 걸친다.
     FillTranslucent(
@@ -442,6 +733,9 @@ void DrawGame(HDC dc, const RECT& client) {
         LogicalRect(layout, 10, 10, kDesignWidth - 20, 160),
         RGB(0x2a, 0x2a, 0x2a),
         222);
+
+    // 기능 배치를 위한 화면 좌표와 플레이 영역 좌표를 좌측 하단에 표시한다.
+    DrawMousePosition(dc, layout);
 }
 
 void PaintWindow(HWND window) {
@@ -493,6 +787,149 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
     case WM_PAINT:
         PaintWindow(window);
         return 0;
+    case WM_MOUSEMOVE: {
+        RECT client{};
+        GetClientRect(window, &client);
+        const Layout layout = GetLayout(client);
+        const int mouseX = GET_X_LPARAM(lParam);
+        const int mouseY = GET_Y_LPARAM(lParam);
+        gMouseDesignPosition.x = static_cast<LONG>(std::lround(
+            (mouseX - layout.offsetX) / layout.scale));
+        gMouseDesignPosition.y = static_cast<LONG>(std::lround(
+            (mouseY - layout.offsetY) / layout.scale));
+        gHasMousePosition = true;
+        const int playX = gMouseDesignPosition.x - kPlayAreaX;
+        const int playY = gMouseDesignPosition.y - kPlayAreaY;
+        const bool isInsidePlayArea = playX >= 0
+            && playX <= kPlayAreaSize
+            && playY >= 0
+            && playY <= kPlayAreaSize;
+        gIsTableHovered = !gIsCookingTransitionRunning
+            && gCookingState == CookingState::NonCooking
+            && isInsidePlayArea
+            && playY >= kTableHoverTop
+            && playY <= kTableHoverBottom;
+
+        if (!gIsTrackingMouse) {
+            TRACKMOUSEEVENT tracking{};
+            tracking.cbSize = sizeof(tracking);
+            tracking.dwFlags = TME_LEAVE;
+            tracking.hwndTrack = window;
+            TrackMouseEvent(&tracking);
+            gIsTrackingMouse = true;
+        }
+        InvalidateRect(window, nullptr, FALSE);
+        return 0;
+    }
+    case WM_LBUTTONDOWN: {
+        RECT client{};
+        GetClientRect(window, &client);
+        const Layout layout = GetLayout(client);
+        const int mouseX = GET_X_LPARAM(lParam);
+        const int mouseY = GET_Y_LPARAM(lParam);
+        const int designX = static_cast<int>(std::lround(
+            (mouseX - layout.offsetX) / layout.scale));
+        const int designY = static_cast<int>(std::lround(
+            (mouseY - layout.offsetY) / layout.scale));
+        const int playX = designX - kPlayAreaX;
+        const int playY = designY - kPlayAreaY;
+        const bool isInsidePlayArea = playX >= 0
+            && playX <= kPlayAreaSize
+            && playY >= 0
+            && playY <= kPlayAreaSize;
+
+        const POINT mousePoint{mouseX, mouseY};
+        const RECT resetButton = ResetButtonRect(layout);
+        const int clickedSocket = HitTestPngSocket();
+        if (IsCookingStateActive()
+            && PtInRect(&resetButton, mousePoint)) {
+            gMaterialCloneCount = 0;
+            StartCookingTransition(CookingState::NonCooking);
+            InvalidateRect(window, nullptr, FALSE);
+        } else if (!gIsCookingTransitionRunning
+            && gCookingState == CookingState::NonCooking
+            && gIsTableHovered) {
+            StartCookingTransition(CookingState::Cooking);
+        } else if (!gIsCookingTransitionRunning
+            && gCookingState == CookingState::Cooking
+            && clickedSocket >= 0) {
+            AddMaterialClone(clickedSocket);
+            InvalidateRect(window, nullptr, FALSE);
+        } else if (!gIsCookingTransitionRunning
+            && gCookingState == CookingState::Cooking
+            && isInsidePlayArea
+            && playY <= kCookingTableY) {
+            StartCookingTransition(CookingState::NonCooking);
+        }
+        return 0;
+    }
+    case WM_MOUSELEAVE:
+        gIsTrackingMouse = false;
+        gIsTableHovered = false;
+        gHoveredPngSocket = -1;
+        return 0;
+    case WM_TIMER:
+        if (wParam == kAnimationTimerId) {
+            bool visualChanged = false;
+            const double previousLift = gTableLift;
+            if (gIsCookingTransitionRunning) {
+                const double elapsedSeconds = (
+                    GetTickCount64() - gCookingTransitionStartTime) / 1000.0;
+                const double progress = elapsedSeconds / kCookingAnimationSeconds;
+                const double easedProgress = SmoothStep(progress);
+                gTableLift = gCookingTransitionStartLift
+                    + (gCookingTransitionTargetLift - gCookingTransitionStartLift)
+                    * easedProgress;
+                if (progress >= 1.0) {
+                    gTableLift = gCookingTransitionTargetLift;
+                    gCookingState = gCookingTransitionTargetState;
+                    gIsCookingTransitionRunning = false;
+                }
+            } else if (gCookingState == CookingState::NonCooking) {
+                const double target = gIsTableHovered ? kTableLiftDistance : 0.0;
+                gTableLift += (target - gTableLift) * kTableEasingSpeed;
+                if (std::abs(target - gTableLift) < 0.01) {
+                    gTableLift = target;
+                }
+            }
+            if (gTableLift != previousLift) {
+                visualChanged = true;
+            }
+
+            gHoveredPngSocket = HitTestPngSocket();
+            for (int index = 0; index < kMaterialBinCount; ++index) {
+                const double targetScale = (index == gHoveredPngSocket)
+                    ? kPngSocketHoverScale
+                    : 1.0;
+                const double previousScale = gPngSocketScales[index];
+                gPngSocketScales[index] += (
+                    targetScale - gPngSocketScales[index])
+                    * kPngSocketEasingSpeed;
+                if (std::abs(targetScale - gPngSocketScales[index]) < 0.0001) {
+                    gPngSocketScales[index] = targetScale;
+                }
+                if (gPngSocketScales[index] != previousScale) {
+                    visualChanged = true;
+                }
+            }
+
+            const double targetButtonOpacity = IsCookingStateActive() ? 1.0 : 0.0;
+            const double previousButtonOpacity = gResetButtonOpacity;
+            gResetButtonOpacity += (
+                targetButtonOpacity - gResetButtonOpacity)
+                * kResetButtonFadeSpeed;
+            if (std::abs(targetButtonOpacity - gResetButtonOpacity) < 0.001) {
+                gResetButtonOpacity = targetButtonOpacity;
+            }
+            if (gResetButtonOpacity != previousButtonOpacity) {
+                visualChanged = true;
+            }
+
+            if (visualChanged) {
+                InvalidateRect(window, nullptr, FALSE);
+            }
+        }
+        return 0;
     case WM_KEYDOWN:
         // 방향키로 소실점을 옮기면 체크 바닥이 즉시 다시 계산된다.
         if (wParam == VK_LEFT) {
@@ -515,6 +952,7 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
         }
         return 0;
     case WM_DESTROY:
+        KillTimer(window, kAnimationTimerId);
         PostQuitMessage(0);
         return 0;
     default:
@@ -525,6 +963,11 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
 } // 이름 없는 네임스페이스
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
+    for (double& scale : gPngSocketScales) {
+        scale = 1.0;
+    }
+    gRandomState ^= static_cast<unsigned int>(GetTickCount());
+
     Gdiplus::GdiplusStartupInput gdiplusInput;
     if (Gdiplus::GdiplusStartup(
             &gGdiplusToken, &gdiplusInput, nullptr) != Gdiplus::Ok) {
@@ -566,6 +1009,11 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
 
     ShowWindow(window, showCommand);
     UpdateWindow(window);
+    SetTimer(
+        window,
+        kAnimationTimerId,
+        kAnimationFrameMilliseconds,
+        nullptr);
 
     MSG message{};
     while (GetMessage(&message, nullptr, 0, 0) > 0) {
