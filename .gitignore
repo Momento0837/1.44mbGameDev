@@ -1,0 +1,28 @@
+/build/
+/.vs/
+*.user
+# Visual Studio 개인 설정 / 캐시
+.vs/
+**/.vs/
+
+# C/C++ 컴파일 중간 파일
+*.obj
+*.pch
+*.ipch
+*.idb
+*.ilk
+*.tlog
+*.log
+
+# 디버깅 심볼
+*.pdb
+
+# 사용자별 Visual Studio 설정
+*.user
+*.suo
+
+# 일반적인 빌드 결과 폴더
+Debug/
+Release/
+x64/
+x86/
