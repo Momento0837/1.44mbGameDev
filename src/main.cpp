@@ -78,6 +78,31 @@ constexpr ULONGLONG kNarrationCharacterIntervalMilliseconds = 80;
 constexpr UINT_PTR kAnimationTimerId = 1;
 constexpr UINT kAnimationFrameMilliseconds = 16;
 
+// 타이틀 화면의 배치와 화면 전환 애니메이션 설정값이다.
+constexpr int kTitlePlaceholderWidth = 500;
+constexpr int kTitlePlaceholderHeight = 300;
+constexpr int kTitlePlaceholderY = 20;
+constexpr BYTE kTitlePlaceholderOpacity = 26;
+constexpr double kTitleBreathingScale = 1.025;
+constexpr double kTitleBreathingSeconds = 3.2;
+constexpr double kTitleAppearanceDelaySeconds = 0.5;
+constexpr double kTitleFadeInSeconds = 0.8;
+constexpr double kScreenFadeSeconds = 0.5;
+constexpr int kTitleButtonFontHeight = 30;
+constexpr int kTitleButtonPadding = 5;
+constexpr double kTitleButtonHoverScale = 1.05;
+constexpr double kTitleButtonEasingSpeed = 0.20;
+constexpr int kExitDialogWidth = 300;
+constexpr int kExitDialogHeight = 200;
+constexpr int kExitDialogButtonWidth = 80;
+constexpr int kExitDialogButtonHeight = 36;
+constexpr wchar_t kTitleButtonLabels[3][16] = {
+    L"게임 시작",
+    L"옵션",
+    L"게임 종료"
+};
+constexpr int kTitleButtonCenterY[3] = {365, 425, 485};
+
 constexpr COLORREF kLetterboxColor = RGB(0x00, 0x00, 0x00);
 constexpr COLORREF kTileGreen = RGB(0xa8, 0xcb, 0xa9);
 constexpr COLORREF kTileWhite = RGB(0xf2, 0xfb, 0xf1);
@@ -97,6 +122,10 @@ constexpr COLORREF kCuttingBoardColor = RGB(0xb6, 0xa1, 0x8c);
 constexpr COLORREF kCuttingBoardBorderColor = RGB(0x7c, 0x65, 0x4e);
 constexpr COLORREF kResetButtonColor = RGB(0x94, 0xc2, 0x93);
 constexpr COLORREF kClonePlaceholderColor = RGB(0xff, 0xea, 0x00);
+constexpr COLORREF kTitlePlaceholderColor = RGB(0x77, 0xcb, 0xe8);
+constexpr COLORREF kExitDialogColor = RGB(0x2a, 0x2a, 0x2a);
+constexpr COLORREF kExitYesButtonColor = RGB(0x94, 0xc2, 0x93);
+constexpr COLORREF kExitNoButtonColor = RGB(0xd9, 0x9a, 0x9a);
 
 constexpr int kMaterialBinColumns = 7;
 constexpr int kMaterialBinRows = 2;
@@ -108,7 +137,7 @@ constexpr wchar_t kMaterialImagePaths[kMaterialBinCount][64] = {
     L"materials\\raw_carrot.png",
     L"materials\\egg_mayo.png",
     L"materials\\tomato.png",
-    L"materials\\mint_chocolate.png",
+    L"materials\\mint_chocolate.png", // 여기까지 제작
     L"materials\\seaweed_and_rice.png",
     L"materials\\burdock.png",
     L"materials\\pickled_radish.png",
@@ -123,6 +152,21 @@ POINT gVanishingPoint{kDefaultVanishingPointX, kDefaultVanishingPointY};
 POINT gMouseDesignPosition{};
 bool gHasMousePosition = false;
 bool gIsTrackingMouse = false;
+
+enum class ScreenState {
+    Title,
+    TitleFadingOut,
+    GameFadingIn,
+    Game
+};
+ScreenState gScreenState = ScreenState::Title;
+ULONGLONG gTitleStartTime = 0;
+ULONGLONG gScreenTransitionStartTime = 0;
+int gHoveredTitleButton = -1;
+double gTitleButtonScales[3]{1.0, 1.0, 1.0};
+RECT gTitleButtonRects[3]{};
+bool gIsExitDialogVisible = false;
+
 bool gIsTableHovered = false;
 double gTableLift = 0.0;
 enum class CookingState {
@@ -1032,6 +1076,279 @@ double SmoothStep(double progress) {
     return clamped * clamped * (3.0 - 2.0 * clamped);
 }
 
+HFONT CreateUiFont(
+    const Layout& layout,
+    double logicalHeight,
+    int weight = FW_NORMAL) {
+    const int fontHeight = (std::max)(
+        1,
+        static_cast<int>(std::lround(logicalHeight * layout.scale)));
+    return CreateFont(
+        -fontHeight,
+        0,
+        0,
+        0,
+        weight,
+        FALSE,
+        FALSE,
+        FALSE,
+        DEFAULT_CHARSET,
+        OUT_DEFAULT_PRECIS,
+        CLIP_DEFAULT_PRECIS,
+        CLEARTYPE_QUALITY,
+        DEFAULT_PITCH | FF_DONTCARE,
+        L"맑은 고딕");
+}
+
+void DrawCenteredText(
+    HDC dc,
+    const Layout& layout,
+    const RECT& logicalArea,
+    const wchar_t* text,
+    double fontHeight,
+    COLORREF color,
+    int weight = FW_NORMAL) {
+    const HFONT font = CreateUiFont(layout, fontHeight, weight);
+    const HGDIOBJ oldFont = SelectObject(dc, font);
+    const int oldBackgroundMode = SetBkMode(dc, TRANSPARENT);
+    const COLORREF oldTextColor = SetTextColor(dc, color);
+    RECT screenArea = LogicalRect(
+        layout,
+        logicalArea.left,
+        logicalArea.top,
+        logicalArea.right - logicalArea.left,
+        logicalArea.bottom - logicalArea.top);
+    DrawText(
+        dc,
+        text,
+        -1,
+        &screenArea,
+        DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+    SetTextColor(dc, oldTextColor);
+    SetBkMode(dc, oldBackgroundMode);
+    SelectObject(dc, oldFont);
+    DeleteObject(font);
+}
+
+RECT ExitDialogRect() {
+    return {
+        (kDesignWidth - kExitDialogWidth) / 2,
+        (kDesignHeight - kExitDialogHeight) / 2,
+        (kDesignWidth + kExitDialogWidth) / 2,
+        (kDesignHeight + kExitDialogHeight) / 2
+    };
+}
+
+RECT ExitDialogButtonRect(bool isYesButton) {
+    constexpr int gap = 30;
+    const int totalWidth = kExitDialogButtonWidth * 2 + gap;
+    const int left = (kDesignWidth - totalWidth) / 2
+        + (isYesButton ? 0 : kExitDialogButtonWidth + gap);
+    const RECT dialog = ExitDialogRect();
+    const int top = dialog.bottom - 62;
+    return {
+        left,
+        top,
+        left + kExitDialogButtonWidth,
+        top + kExitDialogButtonHeight
+    };
+}
+
+double TitleContentOpacity() {
+    if (gScreenState == ScreenState::TitleFadingOut) {
+        const double elapsed = (
+            GetTickCount64() - gScreenTransitionStartTime) / 1000.0;
+        return 1.0 - SmoothStep(elapsed / kScreenFadeSeconds);
+    }
+
+    const double elapsed = (GetTickCount64() - gTitleStartTime) / 1000.0;
+    if (elapsed <= kTitleAppearanceDelaySeconds) {
+        return 0.0;
+    }
+    return SmoothStep(
+        (elapsed - kTitleAppearanceDelaySeconds) / kTitleFadeInSeconds);
+}
+
+bool IsTitleInteractive() {
+    return gScreenState == ScreenState::Title
+        && TitleContentOpacity() >= 0.999;
+}
+
+int HitTestTitleButton(int designX, int designY) {
+    if (!IsTitleInteractive() || gIsExitDialogVisible) {
+        return -1;
+    }
+    const POINT point{designX, designY};
+    for (int index = 0; index < 3; ++index) {
+        if (PtInRect(&gTitleButtonRects[index], point)) {
+            return index;
+        }
+    }
+    return -1;
+}
+
+void DrawExitDialog(HDC dc, const Layout& layout) {
+    const RECT logicalDialog = ExitDialogRect();
+    const RECT dialog = LogicalRect(
+        layout,
+        logicalDialog.left,
+        logicalDialog.top,
+        kExitDialogWidth,
+        kExitDialogHeight);
+    FillSolid(dc, dialog, kExitDialogColor);
+    const HBRUSH borderBrush = CreateSolidBrush(RGB(0xb0, 0xb0, 0xb0));
+    FrameRect(dc, &dialog, borderBrush);
+    DeleteObject(borderBrush);
+
+    const RECT questionArea{
+        logicalDialog.left + 10,
+        logicalDialog.top + 36,
+        logicalDialog.right - 10,
+        logicalDialog.top + 92
+    };
+    DrawCenteredText(
+        dc,
+        layout,
+        questionArea,
+        L"게임을 정말 종료하시겠습니까?",
+        20.0,
+        RGB(0xff, 0xff, 0xff));
+
+    const RECT yesLogical = ExitDialogButtonRect(true);
+    const RECT noLogical = ExitDialogButtonRect(false);
+    FillRoundedRect(
+        dc,
+        LogicalRect(
+            layout,
+            yesLogical.left,
+            yesLogical.top,
+            kExitDialogButtonWidth,
+            kExitDialogButtonHeight),
+        static_cast<int>(std::lround(8.0 * layout.scale)),
+        kExitYesButtonColor);
+    FillRoundedRect(
+        dc,
+        LogicalRect(
+            layout,
+            noLogical.left,
+            noLogical.top,
+            kExitDialogButtonWidth,
+            kExitDialogButtonHeight),
+        static_cast<int>(std::lround(8.0 * layout.scale)),
+        kExitNoButtonColor);
+    DrawCenteredText(
+        dc,
+        layout,
+        yesLogical,
+        L"예",
+        18.0,
+        RGB(0x18, 0x2a, 0x18),
+        FW_BOLD);
+    DrawCenteredText(
+        dc,
+        layout,
+        noLogical,
+        L"아니요",
+        18.0,
+        RGB(0x36, 0x18, 0x18),
+        FW_BOLD);
+}
+
+void DrawTitleScreen(HDC dc, const RECT& client) {
+    FillSolid(dc, client, kLetterboxColor);
+    if (client.right <= client.left || client.bottom <= client.top) {
+        return;
+    }
+
+    const Layout layout = GetLayout(client);
+    const double elapsed = (GetTickCount64() - gTitleStartTime) / 1000.0;
+    const double breathingElapsed = (std::max)(
+        0.0,
+        elapsed - kTitleAppearanceDelaySeconds);
+    constexpr double pi = 3.14159265358979323846;
+    const double breathingAmount = 0.5 - 0.5 * std::cos(
+        breathingElapsed * 2.0 * pi / kTitleBreathingSeconds);
+    const double titleScale = 1.0
+        + (kTitleBreathingScale - 1.0) * breathingAmount;
+    const int titleWidth = static_cast<int>(
+        std::lround(kTitlePlaceholderWidth * titleScale));
+    const int titleHeight = static_cast<int>(
+        std::lround(kTitlePlaceholderHeight * titleScale));
+    const int titleCenterX = kDesignWidth / 2;
+    const int titleCenterY = kTitlePlaceholderY
+        + kTitlePlaceholderHeight / 2;
+    const RECT titleArea = LogicalRect(
+        layout,
+        titleCenterX - titleWidth / 2,
+        titleCenterY - titleHeight / 2,
+        titleWidth,
+        titleHeight);
+
+    // 실제 타이틀 PNG는 이 500x300 자리표시자 영역에 확대하여 출력한다.
+    FillTranslucent(
+        dc,
+        titleArea,
+        kTitlePlaceholderColor,
+        kTitlePlaceholderOpacity);
+
+    for (int index = 0; index < 3; ++index) {
+        const double fontHeight = kTitleButtonFontHeight
+            * gTitleButtonScales[index];
+        const HFONT font = CreateUiFont(layout, fontHeight);
+        const HGDIOBJ oldFont = SelectObject(dc, font);
+        SIZE textSize{};
+        GetTextExtentPoint32(
+            dc,
+            kTitleButtonLabels[index],
+            static_cast<int>(wcslen(kTitleButtonLabels[index])),
+            &textSize);
+        SelectObject(dc, oldFont);
+        DeleteObject(font);
+
+        const int logicalTextWidth = static_cast<int>(
+            std::ceil(textSize.cx / layout.scale));
+        const int logicalTextHeight = static_cast<int>(
+            std::ceil(textSize.cy / layout.scale));
+        const int buttonWidth = logicalTextWidth + kTitleButtonPadding * 2;
+        const int buttonHeight = logicalTextHeight + kTitleButtonPadding * 2;
+        gTitleButtonRects[index] = {
+            kDesignWidth / 2 - buttonWidth / 2,
+            kTitleButtonCenterY[index] - buttonHeight / 2,
+            kDesignWidth / 2 - buttonWidth / 2 + buttonWidth,
+            kTitleButtonCenterY[index] - buttonHeight / 2 + buttonHeight
+        };
+        DrawCenteredText(
+            dc,
+            layout,
+            gTitleButtonRects[index],
+            kTitleButtonLabels[index],
+            fontHeight,
+            RGB(0xff, 0xff, 0xff));
+    }
+
+    if (gIsExitDialogVisible) {
+        DrawExitDialog(dc, layout);
+    }
+
+    const double opacity = TitleContentOpacity();
+    if (opacity < 1.0) {
+        FillTranslucent(
+            dc,
+            client,
+            kLetterboxColor,
+            static_cast<BYTE>(std::lround((1.0 - opacity) * 255.0)));
+    }
+}
+
+void StartGameScreenTransition() {
+    if (!IsTitleInteractive() || gIsExitDialogVisible) {
+        return;
+    }
+    gScreenState = ScreenState::TitleFadingOut;
+    gScreenTransitionStartTime = GetTickCount64();
+    gHoveredTitleButton = -1;
+}
+
 void StartCookingTransition(CookingState targetState) {
     gCookingTransitionTargetState = targetState;
     gIsCookingTransitionRunning = true;
@@ -1126,6 +1443,28 @@ void DrawGame(HDC dc, const RECT& client) {
     DrawMousePosition(dc, layout);
 }
 
+void DrawApplication(HDC dc, const RECT& client) {
+    if (gScreenState == ScreenState::Title
+        || gScreenState == ScreenState::TitleFadingOut) {
+        DrawTitleScreen(dc, client);
+        return;
+    }
+
+    DrawGame(dc, client);
+    if (gScreenState == ScreenState::GameFadingIn) {
+        const double elapsed = (
+            GetTickCount64() - gScreenTransitionStartTime) / 1000.0;
+        const double opacity = SmoothStep(elapsed / kScreenFadeSeconds);
+        if (opacity < 1.0) {
+            FillTranslucent(
+                dc,
+                client,
+                kLetterboxColor,
+                static_cast<BYTE>(std::lround((1.0 - opacity) * 255.0)));
+        }
+    }
+}
+
 void PaintWindow(HWND window) {
     PAINTSTRUCT paint{};
     HDC windowDc = BeginPaint(window, &paint);
@@ -1145,7 +1484,7 @@ void PaintWindow(HWND window) {
         HGDIOBJ oldBitmap = SelectObject(bufferDc, bufferBitmap);
 
         const RECT bufferClient{0, 0, bufferWidth, bufferHeight};
-        DrawGame(bufferDc, bufferClient);
+        DrawApplication(bufferDc, bufferClient);
 
         // 고품질 축소 필터로 체크무늬 바닥의 가장자리를 부드럽게 합성한다.
         SetStretchBltMode(windowDc, HALFTONE);
@@ -1186,17 +1525,28 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
         gMouseDesignPosition.y = static_cast<LONG>(std::lround(
             (mouseY - layout.offsetY) / layout.scale));
         gHasMousePosition = true;
-        const int playX = gMouseDesignPosition.x - kPlayAreaX;
-        const int playY = gMouseDesignPosition.y - kPlayAreaY;
-        const bool isInsidePlayArea = playX >= 0
-            && playX <= kPlayAreaSize
-            && playY >= 0
-            && playY <= kPlayAreaSize;
-        gIsTableHovered = !gIsCookingTransitionRunning
-            && gCookingState == CookingState::NonCooking
-            && isInsidePlayArea
-            && playY >= kTableHoverTop
-            && playY <= kTableHoverBottom;
+        if (gScreenState == ScreenState::Title) {
+            gHoveredTitleButton = HitTestTitleButton(
+                gMouseDesignPosition.x,
+                gMouseDesignPosition.y);
+            gIsTableHovered = false;
+        } else if (gScreenState == ScreenState::Game) {
+            const int playX = gMouseDesignPosition.x - kPlayAreaX;
+            const int playY = gMouseDesignPosition.y - kPlayAreaY;
+            const bool isInsidePlayArea = playX >= 0
+                && playX <= kPlayAreaSize
+                && playY >= 0
+                && playY <= kPlayAreaSize;
+            gIsTableHovered = !gIsCookingTransitionRunning
+                && gCookingState == CookingState::NonCooking
+                && isInsidePlayArea
+                && playY >= kTableHoverTop
+                && playY <= kTableHoverBottom;
+            gHoveredTitleButton = -1;
+        } else {
+            gHoveredTitleButton = -1;
+            gIsTableHovered = false;
+        }
 
         if (!gIsTrackingMouse) {
             TRACKMOUSEEVENT tracking{};
@@ -1225,6 +1575,44 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
             && playX <= kPlayAreaSize
             && playY >= 0
             && playY <= kPlayAreaSize;
+
+        if (gScreenState == ScreenState::Title) {
+            if (!IsTitleInteractive()) {
+                return 0;
+            }
+
+            const POINT logicalMouse{designX, designY};
+            if (gIsExitDialogVisible) {
+                const RECT yesButton = ExitDialogButtonRect(true);
+                const RECT noButton = ExitDialogButtonRect(false);
+                if (PtInRect(&yesButton, logicalMouse)) {
+                    DestroyWindow(window);
+                } else if (PtInRect(&noButton, logicalMouse)) {
+                    gIsExitDialogVisible = false;
+                    InvalidateRect(window, nullptr, FALSE);
+                }
+                return 0;
+            }
+
+            const int clickedTitleButton = HitTestTitleButton(
+                designX,
+                designY);
+            if (clickedTitleButton == 0) {
+                StartGameScreenTransition();
+                InvalidateRect(window, nullptr, FALSE);
+            } else if (clickedTitleButton == 1) {
+                // 옵션 기능은 사운드 시스템을 추가할 때 이 위치에 연결한다.
+            } else if (clickedTitleButton == 2) {
+                gIsExitDialogVisible = true;
+                gHoveredTitleButton = -1;
+                InvalidateRect(window, nullptr, FALSE);
+            }
+            return 0;
+        }
+
+        if (gScreenState != ScreenState::Game) {
+            return 0;
+        }
 
         const POINT mousePoint{mouseX, mouseY};
         const RECT narrationBox = NarrationBoxRect(layout);
@@ -1259,76 +1647,140 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
         gIsTrackingMouse = false;
         gIsTableHovered = false;
         gHoveredPngSocket = -1;
+        gHoveredTitleButton = -1;
+        InvalidateRect(window, nullptr, FALSE);
         return 0;
     case WM_TIMER:
         if (wParam == kAnimationTimerId) {
             bool visualChanged = false;
-            if (gIsNarrationActive && gIsNarrationTyping) {
-                const ULONGLONG elapsed = GetTickCount64() - gNarrationStartTime;
-                const size_t nextVisibleLength = (std::min)(
-                    gCurrentNarrationText.size(),
-                    static_cast<size_t>(
-                        elapsed / kNarrationCharacterIntervalMilliseconds + 1));
-                if (nextVisibleLength != gNarrationVisibleLength) {
-                    gNarrationVisibleLength = nextVisibleLength;
-                    visualChanged = true;
+            const ULONGLONG now = GetTickCount64();
+
+            if (gScreenState == ScreenState::Title
+                || gScreenState == ScreenState::TitleFadingOut) {
+                if (gScreenState == ScreenState::Title
+                    && gHasMousePosition
+                    && gIsTrackingMouse) {
+                    gHoveredTitleButton = HitTestTitleButton(
+                        gMouseDesignPosition.x,
+                        gMouseDesignPosition.y);
+                } else {
+                    gHoveredTitleButton = -1;
                 }
-                if (gNarrationVisibleLength >= gCurrentNarrationText.size()) {
-                    gIsNarrationTyping = false;
+                for (int index = 0; index < 3; ++index) {
+                    const double targetScale = (
+                        !gIsExitDialogVisible
+                        && index == gHoveredTitleButton)
+                        ? kTitleButtonHoverScale
+                        : 1.0;
+                    gTitleButtonScales[index] += (
+                        targetScale - gTitleButtonScales[index])
+                        * kTitleButtonEasingSpeed;
+                    if (std::abs(
+                            targetScale - gTitleButtonScales[index]) < 0.0001) {
+                        gTitleButtonScales[index] = targetScale;
+                    }
                 }
-            }
-            const double previousLift = gTableLift;
-            if (gIsCookingTransitionRunning) {
-                const double elapsedSeconds = (
-                    GetTickCount64() - gCookingTransitionStartTime) / 1000.0;
-                const double progress = elapsedSeconds / kCookingAnimationSeconds;
-                const double easedProgress = SmoothStep(progress);
-                gTableLift = gCookingTransitionStartLift
-                    + (gCookingTransitionTargetLift - gCookingTransitionStartLift)
-                    * easedProgress;
-                if (progress >= 1.0) {
-                    gTableLift = gCookingTransitionTargetLift;
-                    gCookingState = gCookingTransitionTargetState;
-                    gIsCookingTransitionRunning = false;
-                }
-            } else if (gCookingState == CookingState::NonCooking) {
-                const double target = gIsTableHovered ? kTableLiftDistance : 0.0;
-                gTableLift += (target - gTableLift) * kTableEasingSpeed;
-                if (std::abs(target - gTableLift) < 0.01) {
-                    gTableLift = target;
-                }
-            }
-            if (gTableLift != previousLift) {
                 visualChanged = true;
             }
 
-            gHoveredPngSocket = HitTestPngSocket();
-            for (int index = 0; index < kMaterialBinCount; ++index) {
-                const double targetScale = (index == gHoveredPngSocket)
-                    ? kPngSocketHoverScale
-                    : 1.0;
-                const double previousScale = gPngSocketScales[index];
-                gPngSocketScales[index] += (
-                    targetScale - gPngSocketScales[index])
-                    * kPngSocketEasingSpeed;
-                if (std::abs(targetScale - gPngSocketScales[index]) < 0.0001) {
-                    gPngSocketScales[index] = targetScale;
+            if (gScreenState == ScreenState::TitleFadingOut) {
+                const double elapsed = (
+                    now - gScreenTransitionStartTime) / 1000.0;
+                if (elapsed >= kScreenFadeSeconds) {
+                    gScreenState = ScreenState::GameFadingIn;
+                    gScreenTransitionStartTime = now;
+                    gIsTableHovered = false;
+                    gHoveredPngSocket = -1;
                 }
-                if (gPngSocketScales[index] != previousScale) {
-                    visualChanged = true;
+            } else if (gScreenState == ScreenState::GameFadingIn) {
+                const double elapsed = (
+                    now - gScreenTransitionStartTime) / 1000.0;
+                visualChanged = true;
+                if (elapsed >= kScreenFadeSeconds) {
+                    gScreenState = ScreenState::Game;
                 }
             }
 
-            const double targetButtonOpacity = IsCookingStateActive() ? 1.0 : 0.0;
-            const double previousButtonOpacity = gResetButtonOpacity;
-            gResetButtonOpacity += (
-                targetButtonOpacity - gResetButtonOpacity)
-                * kResetButtonFadeSpeed;
-            if (std::abs(targetButtonOpacity - gResetButtonOpacity) < 0.001) {
-                gResetButtonOpacity = targetButtonOpacity;
-            }
-            if (gResetButtonOpacity != previousButtonOpacity) {
-                visualChanged = true;
+            if (gScreenState == ScreenState::Game) {
+                if (gIsNarrationActive && gIsNarrationTyping) {
+                    const ULONGLONG elapsed = now - gNarrationStartTime;
+                    const size_t nextVisibleLength = (std::min)(
+                        gCurrentNarrationText.size(),
+                        static_cast<size_t>(
+                            elapsed
+                                / kNarrationCharacterIntervalMilliseconds
+                                + 1));
+                    if (nextVisibleLength != gNarrationVisibleLength) {
+                        gNarrationVisibleLength = nextVisibleLength;
+                        visualChanged = true;
+                    }
+                    if (gNarrationVisibleLength
+                        >= gCurrentNarrationText.size()) {
+                        gIsNarrationTyping = false;
+                    }
+                }
+
+                const double previousLift = gTableLift;
+                if (gIsCookingTransitionRunning) {
+                    const double elapsedSeconds = (
+                        now - gCookingTransitionStartTime) / 1000.0;
+                    const double progress = elapsedSeconds
+                        / kCookingAnimationSeconds;
+                    const double easedProgress = SmoothStep(progress);
+                    gTableLift = gCookingTransitionStartLift
+                        + (gCookingTransitionTargetLift
+                            - gCookingTransitionStartLift)
+                        * easedProgress;
+                    if (progress >= 1.0) {
+                        gTableLift = gCookingTransitionTargetLift;
+                        gCookingState = gCookingTransitionTargetState;
+                        gIsCookingTransitionRunning = false;
+                    }
+                } else if (gCookingState == CookingState::NonCooking) {
+                    const double target = gIsTableHovered
+                        ? kTableLiftDistance
+                        : 0.0;
+                    gTableLift += (target - gTableLift) * kTableEasingSpeed;
+                    if (std::abs(target - gTableLift) < 0.01) {
+                        gTableLift = target;
+                    }
+                }
+                if (gTableLift != previousLift) {
+                    visualChanged = true;
+                }
+
+                gHoveredPngSocket = HitTestPngSocket();
+                for (int index = 0; index < kMaterialBinCount; ++index) {
+                    const double targetScale = (index == gHoveredPngSocket)
+                        ? kPngSocketHoverScale
+                        : 1.0;
+                    const double previousScale = gPngSocketScales[index];
+                    gPngSocketScales[index] += (
+                        targetScale - gPngSocketScales[index])
+                        * kPngSocketEasingSpeed;
+                    if (std::abs(
+                            targetScale - gPngSocketScales[index]) < 0.0001) {
+                        gPngSocketScales[index] = targetScale;
+                    }
+                    if (gPngSocketScales[index] != previousScale) {
+                        visualChanged = true;
+                    }
+                }
+
+                const double targetButtonOpacity = IsCookingStateActive()
+                    ? 1.0
+                    : 0.0;
+                const double previousButtonOpacity = gResetButtonOpacity;
+                gResetButtonOpacity += (
+                    targetButtonOpacity - gResetButtonOpacity)
+                    * kResetButtonFadeSpeed;
+                if (std::abs(
+                        targetButtonOpacity - gResetButtonOpacity) < 0.001) {
+                    gResetButtonOpacity = targetButtonOpacity;
+                }
+                if (gResetButtonOpacity != previousButtonOpacity) {
+                    visualChanged = true;
+                }
             }
 
             if (visualChanged) {
@@ -1337,26 +1789,11 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
         }
         return 0;
     case WM_KEYDOWN:
-        // 방향키로 소실점을 옮기면 체크 바닥이 즉시 다시 계산된다.
-        if (wParam == VK_LEFT) {
-            gVanishingPoint.x = (std::max)(20L, gVanishingPoint.x - 4);
-            InvalidateRect(window, nullptr, FALSE);
-        } else if (wParam == VK_RIGHT) {
-            gVanishingPoint.x = (std::min)(
-                static_cast<LONG>(kPlayAreaSize - 20), gVanishingPoint.x + 4);
-            InvalidateRect(window, nullptr, FALSE);
-        } else if (wParam == VK_UP) {
-            gVanishingPoint.y = (std::max)(20L, gVanishingPoint.y - 4);
-            InvalidateRect(window, nullptr, FALSE);
-        } else if (wParam == VK_DOWN) {
-            gVanishingPoint.y = (std::min)(
-                static_cast<LONG>(kPlayAreaSize - 80), gVanishingPoint.y + 4);
-            InvalidateRect(window, nullptr, FALSE);
-        }
+        // ESC는 추후 일시정지 기능에 사용할 예정이므로 현재는 무시한다.
         if (wParam == VK_ESCAPE) {
-            DestroyWindow(window);
+            return 0;
         }
-        return 0;
+        return DefWindowProc(window, message, wParam, lParam);
     case WM_DESTROY:
         KillTimer(window, kAnimationTimerId);
         PostQuitMessage(0);
@@ -1423,6 +1860,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
         return 1;
     }
 
+    gTitleStartTime = GetTickCount64();
     ShowWindow(window, showCommand);
     UpdateWindow(window);
     SetTimer(
