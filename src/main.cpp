@@ -6,7 +6,10 @@
 #include <algorithm>
 #include <cmath>
 #include <cwchar>
+#include <fstream>
+#include <iterator>
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -67,6 +70,11 @@ constexpr int kResetButtonHeight = 30;
 constexpr int kResetButtonMargin = 10;
 constexpr int kResetButtonRadius = 8;
 constexpr double kResetButtonFadeSpeed = 0.08;
+constexpr int kNarrationBoxX = 10;
+constexpr int kNarrationBoxY = 10;
+constexpr int kNarrationBoxWidth = kDesignWidth - 20;
+constexpr int kNarrationBoxHeight = 160;
+constexpr ULONGLONG kNarrationCharacterIntervalMilliseconds = 80;
 constexpr UINT_PTR kAnimationTimerId = 1;
 constexpr UINT kAnimationFrameMilliseconds = 16;
 
@@ -94,20 +102,20 @@ constexpr int kMaterialBinColumns = 7;
 constexpr int kMaterialBinRows = 2;
 constexpr int kMaterialBinCount = kMaterialBinColumns * kMaterialBinRows;
 constexpr wchar_t kMaterialImagePaths[kMaterialBinCount][64] = {
-    L"assets\\materials\\material_01.png",
-    L"assets\\materials\\material_02.png",
-    L"assets\\materials\\material_03.png",
-    L"assets\\materials\\material_04.png",
-    L"assets\\materials\\material_05.png",
-    L"assets\\materials\\material_06.png",
-    L"assets\\materials\\material_07.png",
-    L"assets\\materials\\material_08.png",
-    L"assets\\materials\\material_09.png",
-    L"assets\\materials\\material_10.png",
-    L"assets\\materials\\material_11.png",
-    L"assets\\materials\\material_12.png",
-    L"assets\\materials\\material_13.png",
-    L"assets\\materials\\material_14.png"
+    L"materials\\tortilla.png",
+    L"materials\\lettuce.png",
+    L"materials\\raw_bell_pepper.png",
+    L"materials\\raw_carrot.png",
+    L"materials\\egg_mayo.png",
+    L"materials\\tomato.png",
+    L"materials\\mint_chocolate.png",
+    L"materials\\seaweed_and_rice.png",
+    L"materials\\burdock.png",
+    L"materials\\pickled_radish.png",
+    L"materials\\crab_stick.png",
+    L"materials\\spinach.png",
+    L"materials\\strawberry.png",
+    L"materials\\chocolate.png"
 };
 
 // 소실점 좌표는 플레이 영역의 왼쪽 위를 (0, 0)으로 삼는다.
@@ -148,6 +156,21 @@ MaterialClone gMaterialClones[kMaximumMaterialClones]{};
 int gMaterialCloneCount = 0;
 unsigned int gRandomState = 0x144u;
 double gResetButtonOpacity = 0.0;
+bool gIsNarrationActive = false;
+bool gIsNarrationTyping = false;
+ULONGLONG gNarrationStartTime = 0;
+size_t gNarrationVisibleLength = 0;
+struct DialogueTree {
+    std::wstring id;
+    std::vector<std::vector<std::wstring>> steps;
+};
+std::vector<std::wstring> gNarrationNames;
+std::vector<DialogueTree> gDialogueTrees;
+std::wstring gCurrentNarrationName;
+std::wstring gCurrentNarrationText;
+int gCurrentDialogueTree = -1;
+size_t gCurrentDialogueStep = 0;
+std::wstring gAssetsDirectory;
 ULONG_PTR gGdiplusToken = 0;
 Gdiplus::Image* gMaterialImages[kMaterialBinCount]{};
 
@@ -161,10 +184,248 @@ std::wstring GetExecutableDirectory() {
         : directory.substr(0, slash + 1);
 }
 
+bool FileExists(const std::wstring& path) {
+    const DWORD attributes = GetFileAttributes(path.c_str());
+    return attributes != INVALID_FILE_ATTRIBUTES
+        && (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0;
+}
+
+std::wstring FindAssetsDirectory() {
+    std::wstring directory = GetExecutableDirectory();
+    for (int depth = 0; depth < 8 && !directory.empty(); ++depth) {
+        const std::wstring candidate = directory + L"assets\\";
+        if (FileExists(candidate + L"narration.json")) {
+            return candidate;
+        }
+
+        while (!directory.empty()
+            && (directory.back() == L'\\' || directory.back() == L'/')) {
+            directory.pop_back();
+        }
+        const std::wstring::size_type slash = directory.find_last_of(L"\\/");
+        if (slash == std::wstring::npos) {
+            break;
+        }
+        directory.erase(slash + 1);
+    }
+    return std::wstring();
+}
+
+void SkipJsonWhitespace(const std::string& json, size_t& position) {
+    while (position < json.size()
+        && (json[position] == ' '
+            || json[position] == '\t'
+            || json[position] == '\r'
+            || json[position] == '\n')) {
+        ++position;
+    }
+}
+
+bool ParseJsonString(
+    const std::string& json, size_t& position, std::string& value) {
+    SkipJsonWhitespace(json, position);
+    if (position >= json.size() || json[position] != '"') {
+        return false;
+    }
+
+    ++position;
+    value.clear();
+    while (position < json.size()) {
+        const char character = json[position++];
+        if (character == '"') {
+            return true;
+        }
+        if (character == '\\' && position < json.size()) {
+            const char escaped = json[position++];
+            switch (escaped) {
+            case '"': value.push_back('"'); break;
+            case '\\': value.push_back('\\'); break;
+            case '/': value.push_back('/'); break;
+            case 'b': value.push_back('\b'); break;
+            case 'f': value.push_back('\f'); break;
+            case 'n': value.push_back('\n'); break;
+            case 'r': value.push_back('\r'); break;
+            case 't': value.push_back('\t'); break;
+            default: return false;
+            }
+        } else {
+            value.push_back(character);
+        }
+    }
+    return false;
+}
+
+size_t FindJsonProperty(const std::string& json, const std::string& name) {
+    const std::string propertyName = "\"" + name + "\"";
+    size_t namePosition = 0;
+    while ((namePosition = json.find(propertyName, namePosition))
+        != std::string::npos) {
+        size_t colonPosition = namePosition + propertyName.size();
+        SkipJsonWhitespace(json, colonPosition);
+        if (colonPosition < json.size() && json[colonPosition] == ':') {
+            size_t valuePosition = colonPosition + 1;
+            SkipJsonWhitespace(json, valuePosition);
+            return valuePosition;
+        }
+        namePosition += propertyName.size();
+    }
+    return std::string::npos;
+}
+
+size_t FindMatchingJsonDelimiter(
+    const std::string& json, size_t start, char opening, char closing) {
+    int depth = 0;
+    bool insideString = false;
+    bool escaped = false;
+    for (size_t position = start; position < json.size(); ++position) {
+        const char character = json[position];
+        if (insideString) {
+            if (escaped) {
+                escaped = false;
+            } else if (character == '\\') {
+                escaped = true;
+            } else if (character == '"') {
+                insideString = false;
+            }
+            continue;
+        }
+        if (character == '"') {
+            insideString = true;
+        } else if (character == opening) {
+            ++depth;
+        } else if (character == closing && --depth == 0) {
+            return position;
+        }
+    }
+    return std::string::npos;
+}
+
+bool ParseJsonStringArray(
+    const std::string& json,
+    size_t arrayPosition,
+    std::vector<std::string>& values) {
+    if (arrayPosition >= json.size() || json[arrayPosition] != '[') {
+        return false;
+    }
+    ++arrayPosition;
+    values.clear();
+    while (arrayPosition < json.size()) {
+        SkipJsonWhitespace(json, arrayPosition);
+        if (arrayPosition >= json.size()) {
+            return false;
+        }
+        if (json[arrayPosition] == ']') {
+            return true;
+        }
+        std::string value;
+        if (!ParseJsonString(json, arrayPosition, value)) {
+            return false;
+        }
+        values.push_back(value);
+        SkipJsonWhitespace(json, arrayPosition);
+        if (arrayPosition >= json.size()) {
+            return false;
+        }
+        if (json[arrayPosition] == ',') {
+            ++arrayPosition;
+        } else if (json[arrayPosition] != ']') {
+            return false;
+        }
+    }
+    return false;
+}
+
+std::wstring Utf8ToWide(const std::string& text) {
+    if (text.empty()) {
+        return std::wstring();
+    }
+    const int length = MultiByteToWideChar(
+        CP_UTF8, MB_ERR_INVALID_CHARS, text.data(),
+        static_cast<int>(text.size()), nullptr, 0);
+    if (length <= 0) {
+        return std::wstring();
+    }
+    std::wstring converted(static_cast<size_t>(length), L'\0');
+    MultiByteToWideChar(
+        CP_UTF8, MB_ERR_INVALID_CHARS, text.data(),
+        static_cast<int>(text.size()), converted.data(), length);
+    return converted;
+}
+
+bool LoadNarrationData() {
+    const std::wstring path = gAssetsDirectory + L"narration.json";
+    std::ifstream file(path, std::ios::binary);
+    if (!file) {
+        return false;
+    }
+    const std::string json(
+        (std::istreambuf_iterator<char>(file)),
+        std::istreambuf_iterator<char>());
+
+    std::vector<std::string> names;
+    const size_t namesPosition = FindJsonProperty(json, "names");
+    if (!ParseJsonStringArray(json, namesPosition, names)) {
+        return false;
+    }
+    for (const std::string& name : names) {
+        gNarrationNames.push_back(Utf8ToWide(name));
+    }
+
+    const size_t treesStart = FindJsonProperty(json, "dialogueTrees");
+    const size_t treesEnd = FindMatchingJsonDelimiter(json, treesStart, '[', ']');
+    if (treesStart == std::string::npos || treesEnd == std::string::npos) {
+        return false;
+    }
+
+    size_t position = treesStart + 1;
+    while (position < treesEnd) {
+        position = json.find('{', position);
+        if (position == std::string::npos || position >= treesEnd) {
+            break;
+        }
+        const size_t objectEnd = FindMatchingJsonDelimiter(json, position, '{', '}');
+        if (objectEnd == std::string::npos || objectEnd > treesEnd) {
+            return false;
+        }
+        const std::string treeJson = json.substr(position, objectEnd - position + 1);
+
+        size_t idPosition = FindJsonProperty(treeJson, "id");
+        std::string id;
+        if (!ParseJsonString(treeJson, idPosition, id)) {
+            return false;
+        }
+        std::vector<std::string> sequence;
+        if (!ParseJsonStringArray(
+                treeJson, FindJsonProperty(treeJson, "sequence"), sequence)) {
+            return false;
+        }
+
+        DialogueTree tree;
+        tree.id = Utf8ToWide(id);
+        for (const std::string& stage : sequence) {
+            std::vector<std::string> lines;
+            if (!ParseJsonStringArray(
+                    treeJson, FindJsonProperty(treeJson, stage), lines)
+                || lines.empty()) {
+                return false;
+            }
+            std::vector<std::wstring> convertedLines;
+            for (const std::string& line : lines) {
+                convertedLines.push_back(Utf8ToWide(line));
+            }
+            tree.steps.push_back(convertedLines);
+        }
+        if (!tree.steps.empty()) {
+            gDialogueTrees.push_back(tree);
+        }
+        position = objectEnd + 1;
+    }
+    return !gNarrationNames.empty() && !gDialogueTrees.empty();
+}
+
 void LoadMaterialImages() {
-    const std::wstring executableDirectory = GetExecutableDirectory();
     for (int index = 0; index < kMaterialBinCount; ++index) {
-        const std::wstring imagePath = executableDirectory + kMaterialImagePaths[index];
+        const std::wstring imagePath = gAssetsDirectory + kMaterialImagePaths[index];
         Gdiplus::Image* image = Gdiplus::Image::FromFile(imagePath.c_str(), FALSE);
         if (image != nullptr && image->GetLastStatus() == Gdiplus::Ok) {
             gMaterialImages[index] = image;
@@ -636,6 +897,136 @@ void DrawMousePosition(HDC dc, const Layout& layout) {
     DeleteObject(font);
 }
 
+void StartCurrentNarrationLine() {
+    if (gCurrentDialogueTree < 0
+        || gCurrentDialogueTree >= static_cast<int>(gDialogueTrees.size())) {
+        return;
+    }
+    const DialogueTree& tree = gDialogueTrees[gCurrentDialogueTree];
+    if (gCurrentDialogueStep >= tree.steps.size()
+        || tree.steps[gCurrentDialogueStep].empty()) {
+        return;
+    }
+    const std::vector<std::wstring>& lines = tree.steps[gCurrentDialogueStep];
+    gCurrentNarrationText = lines[NextRandom() % lines.size()];
+    gIsNarrationActive = true;
+    gIsNarrationTyping = true;
+    gNarrationStartTime = GetTickCount64();
+    gNarrationVisibleLength = gCurrentNarrationText.empty() ? 0 : 1;
+}
+
+void StartRandomDialogueTree() {
+    if (gNarrationNames.empty() || gDialogueTrees.empty()) {
+        return;
+    }
+    gCurrentNarrationName =
+        gNarrationNames[NextRandom() % gNarrationNames.size()];
+    gCurrentDialogueTree = static_cast<int>(
+        NextRandom() % gDialogueTrees.size());
+    gCurrentDialogueStep = 0;
+    StartCurrentNarrationLine();
+}
+
+void AdvanceNarration() {
+    if (!gIsNarrationActive) {
+        StartRandomDialogueTree();
+        return;
+    }
+    if (gIsNarrationTyping) {
+        gNarrationVisibleLength = gCurrentNarrationText.size();
+        gIsNarrationTyping = false;
+        return;
+    }
+
+    const DialogueTree& tree = gDialogueTrees[gCurrentDialogueTree];
+    ++gCurrentDialogueStep;
+    if (gCurrentDialogueStep < tree.steps.size()) {
+        StartCurrentNarrationLine();
+    } else {
+        StartRandomDialogueTree();
+    }
+}
+
+RECT NarrationBoxRect(const Layout& layout) {
+    return LogicalRect(
+        layout,
+        kNarrationBoxX,
+        kNarrationBoxY,
+        kNarrationBoxWidth,
+        kNarrationBoxHeight);
+}
+
+void DrawNarration(HDC dc, const Layout& layout) {
+    if (!gIsNarrationActive) {
+        return;
+    }
+
+    const int nameFontHeight = (std::max)(
+        1, static_cast<int>(std::lround(18.0 * layout.scale)));
+    const HFONT nameFont = CreateFont(
+        -nameFontHeight,
+        0,
+        0,
+        0,
+        FW_BOLD,
+        FALSE,
+        FALSE,
+        FALSE,
+        DEFAULT_CHARSET,
+        OUT_DEFAULT_PRECIS,
+        CLIP_DEFAULT_PRECIS,
+        CLEARTYPE_QUALITY,
+        DEFAULT_PITCH | FF_DONTCARE,
+        L"맑은 고딕");
+    HGDIOBJ oldFont = SelectObject(dc, nameFont);
+    const int oldBackgroundMode = SetBkMode(dc, TRANSPARENT);
+    const COLORREF oldTextColor = SetTextColor(dc, RGB(0xff, 0xff, 0xff));
+    const POINT namePosition = LogicalPoint(
+        layout,
+        kNarrationBoxX + 24,
+        kNarrationBoxY + 20);
+    TextOut(
+        dc,
+        namePosition.x,
+        namePosition.y,
+        gCurrentNarrationName.c_str(),
+        static_cast<int>(gCurrentNarrationName.size()));
+
+    const int dialogueFontHeight = (std::max)(
+        1, static_cast<int>(std::lround(24.0 * layout.scale)));
+    const HFONT dialogueFont = CreateFont(
+        -dialogueFontHeight,
+        0,
+        0,
+        0,
+        FW_NORMAL,
+        FALSE,
+        FALSE,
+        FALSE,
+        DEFAULT_CHARSET,
+        OUT_DEFAULT_PRECIS,
+        CLIP_DEFAULT_PRECIS,
+        CLEARTYPE_QUALITY,
+        DEFAULT_PITCH | FF_DONTCARE,
+        L"맑은 고딕");
+    SelectObject(dc, dialogueFont);
+    const POINT textPosition = LogicalPoint(
+        layout,
+        kNarrationBoxX + 24,
+        kNarrationBoxY + 62);
+    TextOut(
+        dc,
+        textPosition.x,
+        textPosition.y,
+        gCurrentNarrationText.c_str(),
+        static_cast<int>(gNarrationVisibleLength));
+    SetTextColor(dc, oldTextColor);
+    SetBkMode(dc, oldBackgroundMode);
+    SelectObject(dc, oldFont);
+    DeleteObject(dialogueFont);
+    DeleteObject(nameFont);
+}
+
 double SmoothStep(double progress) {
     const double clamped = (std::max)(0.0, (std::min)(1.0, progress));
     return clamped * clamped * (3.0 - 2.0 * clamped);
@@ -728,11 +1119,8 @@ void DrawGame(HDC dc, const RECT& client) {
     }
 
     // 최상단 암막은 플레이 영역과 레터박스 양쪽에 반투명하게 걸친다.
-    FillTranslucent(
-        dc,
-        LogicalRect(layout, 10, 10, kDesignWidth - 20, 160),
-        RGB(0x2a, 0x2a, 0x2a),
-        222);
+    FillTranslucent(dc, NarrationBoxRect(layout), RGB(0x2a, 0x2a, 0x2a), 222);
+    DrawNarration(dc, layout);
 
     // 기능 배치를 위한 화면 좌표와 플레이 영역 좌표를 좌측 하단에 표시한다.
     DrawMousePosition(dc, layout);
@@ -839,9 +1227,13 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
             && playY <= kPlayAreaSize;
 
         const POINT mousePoint{mouseX, mouseY};
+        const RECT narrationBox = NarrationBoxRect(layout);
         const RECT resetButton = ResetButtonRect(layout);
         const int clickedSocket = HitTestPngSocket();
-        if (IsCookingStateActive()
+        if (PtInRect(&narrationBox, mousePoint)) {
+            AdvanceNarration();
+            InvalidateRect(window, nullptr, FALSE);
+        } else if (IsCookingStateActive()
             && PtInRect(&resetButton, mousePoint)) {
             gMaterialCloneCount = 0;
             StartCookingTransition(CookingState::NonCooking);
@@ -871,6 +1263,20 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
     case WM_TIMER:
         if (wParam == kAnimationTimerId) {
             bool visualChanged = false;
+            if (gIsNarrationActive && gIsNarrationTyping) {
+                const ULONGLONG elapsed = GetTickCount64() - gNarrationStartTime;
+                const size_t nextVisibleLength = (std::min)(
+                    gCurrentNarrationText.size(),
+                    static_cast<size_t>(
+                        elapsed / kNarrationCharacterIntervalMilliseconds + 1));
+                if (nextVisibleLength != gNarrationVisibleLength) {
+                    gNarrationVisibleLength = nextVisibleLength;
+                    visualChanged = true;
+                }
+                if (gNarrationVisibleLength >= gCurrentNarrationText.size()) {
+                    gIsNarrationTyping = false;
+                }
+            }
             const double previousLift = gTableLift;
             if (gIsCookingTransitionRunning) {
                 const double elapsedSeconds = (
@@ -967,6 +1373,16 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
         scale = 1.0;
     }
     gRandomState ^= static_cast<unsigned int>(GetTickCount());
+    gAssetsDirectory = FindAssetsDirectory();
+    if (gAssetsDirectory.empty() || !LoadNarrationData()) {
+        MessageBox(
+            nullptr,
+            L"실행 파일 또는 상위 폴더에서 assets\\narration.json 파일을 "
+            L"찾지 못했습니다.",
+            L"나레이션 데이터 오류",
+            MB_OK | MB_ICONERROR);
+        return 1;
+    }
 
     Gdiplus::GdiplusStartupInput gdiplusInput;
     if (Gdiplus::GdiplusStartup(
