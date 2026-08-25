@@ -1,73 +1,401 @@
 {
-  "names": [
-    "홍길동",
-    "김길동",
-    "김춘식"
-  ],
-  "dialogueTrees": [
+  "names": ["홍길동", "김길동", "김춘식"],
+  "customerCategories": [
     {
-      "id": "cabbage_wrap",
-      "food": "양배추 랩",
-      "sequence": [
-        "initialOrder",
-        "orderAccepted",
-        "waiting",
-        "servedCorrectly"
-      ],
-      "dialogues": {
-        "initialOrder": [
-          "양배추 랩 주세요.",
-          "양배추 랩 하나 부탁해요."
-        ],
-        "orderAccepted": [
-          "네, 양배추 랩 기다릴게요.",
-          "양배추 랩 맛있게 만들어 주세요."
-        ],
-        "waiting": [
-          "양배추 랩은 아직인가요?",
-          "맛있는 냄새가 나네요."
-        ],
-        "servedCorrectly": [
-          "제가 주문한 양배추 랩이군요!",
-          "양배추 랩 잘 먹겠습니다."
-        ],
-        "servedIncorrectly": [
-          "제가 주문한 건 양배추 랩인데요?",
-          "이건 양배추 랩이 아닌 것 같아요."
-        ]
-      }
+      "id": "normal",
+      "name": "정상인",
+      "menus": [
+        {
+          "id": "normal_menu_01",
+          "name": "",
+          "recipe": {
+            "ingredients": [
+              {"materialId": "tortilla", "quantity": 1},
+              {"materialId": "lettuce", "quantity": 2},
+              {"materialId": "raw_carrot", "quantity": 1}
+            ]
+          },
+          "dialogueTree": {
+            "id": "normal_dialogue_01",
+            "I_entry": ["", ""],
+            "II_additional": ["", ""],
+            "III_hoverHints": [
+              {"materialId": "lettuce", "nearby": ["", ""], "exact": []}
+            ],
+            "IV_afterCooking": ["", ""]
+          }
+        },
+        {
+          "id": "normal_menu_02",
+          "name": "",
+          "recipe": {
+            "ingredients": [
+              {"materialId": "tortilla", "quantity": 1},
+              {"materialId": "tomato", "quantity": 1},
+              {"materialId": "egg_mayo", "quantity": 1}
+            ]
+          },
+          "dialogueTree": {
+            "id": "normal_dialogue_02",
+            "I_entry": ["", ""],
+            "II_additional": ["", ""],
+            "III_hoverHints": [
+              {"materialId": "tomato", "nearby": ["", ""], "exact": []}
+            ],
+            "IV_afterCooking": ["", ""]
+          }
+        },
+        {
+          "id": "normal_menu_03",
+          "name": "",
+          "recipe": {
+            "ingredients": [
+              {"materialId": "seaweed_and_rice", "quantity": 1},
+              {"materialId": "burdock", "quantity": 1},
+              {"materialId": "pickled_radish", "quantity": 1}
+            ]
+          },
+          "dialogueTree": {
+            "id": "normal_dialogue_03",
+            "I_entry": ["", ""],
+            "II_additional": ["", ""],
+            "III_hoverHints": [
+              {"materialId": "seaweed_and_rice", "nearby": ["", ""], "exact": []}
+            ],
+            "IV_afterCooking": ["", ""]
+          }
+        }
+      ]
     },
     {
-      "id": "tteokbokki",
-      "food": "떡볶이",
-      "sequence": [
-        "initialOrder",
-        "orderAccepted",
-        "waiting",
-        "servedCorrectly"
-      ],
-      "dialogues": {
-        "initialOrder": [
-          "떡볶이 주세요.",
-          "매콤한 떡볶이 하나 부탁해요."
-        ],
-        "orderAccepted": [
-          "네, 떡볶이 기다릴게요.",
-          "떡볶이는 조금 맵게 해주세요."
-        ],
-        "waiting": [
-          "떡볶이는 아직인가요?",
-          "매콤한 냄새가 기대되네요."
-        ],
-        "servedCorrectly": [
-          "제가 주문한 떡볶이네요!",
-          "떡볶이 잘 먹겠습니다."
-        ],
-        "servedIncorrectly": [
-          "제가 주문한 건 떡볶이인데요?",
-          "이건 떡볶이가 아닌 것 같아요."
-        ]
-      }
+      "id": "sequence_obsessed",
+      "name": "순서 집착",
+      "menus": [
+        {
+          "id": "sequence_obsessed_menu_01",
+          "name": "",
+          "recipe": {
+            "ingredients": [
+              {"materialId": "tortilla", "quantity": 1},
+              {"materialId": "lettuce", "quantity": 2},
+              {"materialId": "raw_carrot", "quantity": 1}
+            ]
+          },
+          "dialogueTree": {
+            "id": "sequence_obsessed_dialogue_01",
+            "I_entry": ["", ""],
+            "II_additional": ["", "", "", "", ""],
+            "III_hoverHints": [
+              {"materialId": "lettuce", "nearby": ["", "", "", "", ""], "exact": []}
+            ],
+            "IV_afterCooking": ["", ""]
+          }
+        },
+        {
+          "id": "sequence_obsessed_menu_02",
+          "name": "",
+          "recipe": {
+            "ingredients": [
+              {"materialId": "tortilla", "quantity": 1},
+              {"materialId": "tomato", "quantity": 1},
+              {"materialId": "egg_mayo", "quantity": 1}
+            ]
+          },
+          "dialogueTree": {
+            "id": "sequence_obsessed_dialogue_02",
+            "I_entry": ["", ""],
+            "II_additional": ["", "", "", "", ""],
+            "III_hoverHints": [
+              {"materialId": "tomato", "nearby": ["", "", "", "", ""], "exact": []}
+            ],
+            "IV_afterCooking": ["", ""]
+          }
+        },
+        {
+          "id": "sequence_obsessed_menu_03",
+          "name": "",
+          "recipe": {
+            "ingredients": [
+              {"materialId": "seaweed_and_rice", "quantity": 1},
+              {"materialId": "burdock", "quantity": 1},
+              {"materialId": "pickled_radish", "quantity": 1}
+            ]
+          },
+          "dialogueTree": {
+            "id": "sequence_obsessed_dialogue_03",
+            "I_entry": ["", ""],
+            "II_additional": ["", "", "", "", ""],
+            "III_hoverHints": [
+              {"materialId": "seaweed_and_rice", "nearby": ["", "", "", "", ""], "exact": []}
+            ],
+            "IV_afterCooking": ["", ""]
+          }
+        }
+      ]
+    },
+    {
+      "id": "order_change",
+      "name": "주문 번복",
+      "menus": [
+        {
+          "id": "order_change_menu_01",
+          "name": "",
+          "recipe": {
+            "ingredients": [
+              {"materialId": "tortilla", "quantity": 1},
+              {"materialId": "lettuce", "quantity": 2},
+              {"materialId": "raw_carrot", "quantity": 1}
+            ]
+          },
+          "dialogueTree": {
+            "id": "order_change_dialogue_01",
+            "I_entry": ["", ""],
+            "II_additional": ["", ""],
+            "III_hoverHints": [
+              {"materialId": "lettuce", "nearby": ["", "", "", "", "", ""], "exact": []}
+            ],
+            "IV_afterCooking": ["", ""]
+          }
+        },
+        {
+          "id": "order_change_menu_02",
+          "name": "",
+          "recipe": {
+            "ingredients": [
+              {"materialId": "tortilla", "quantity": 1},
+              {"materialId": "tomato", "quantity": 1},
+              {"materialId": "egg_mayo", "quantity": 1}
+            ]
+          },
+          "dialogueTree": {
+            "id": "order_change_dialogue_02",
+            "I_entry": ["", ""],
+            "II_additional": ["", ""],
+            "III_hoverHints": [
+              {"materialId": "tomato", "nearby": ["", "", "", "", "", ""], "exact": []}
+            ],
+            "IV_afterCooking": ["", ""]
+          }
+        },
+        {
+          "id": "order_change_menu_03",
+          "name": "",
+          "recipe": {
+            "ingredients": [
+              {"materialId": "seaweed_and_rice", "quantity": 1},
+              {"materialId": "burdock", "quantity": 1},
+              {"materialId": "pickled_radish", "quantity": 1}
+            ]
+          },
+          "dialogueTree": {
+            "id": "order_change_dialogue_03",
+            "I_entry": ["", ""],
+            "II_additional": ["", ""],
+            "III_hoverHints": [
+              {"materialId": "seaweed_and_rice", "nearby": ["", "", "", "", "", ""], "exact": []}
+            ],
+            "IV_afterCooking": ["", ""]
+          }
+        }
+      ]
+    },
+    {
+      "id": "large_order",
+      "name": "많이 주문",
+      "menus": [
+        {
+          "id": "large_order_menu_01",
+          "name": "",
+          "recipe": {
+            "ingredients": [
+              {"materialId": "tortilla", "quantity": 1},
+              {"materialId": "lettuce", "quantity": 2},
+              {"materialId": "raw_carrot", "quantity": 1}
+            ]
+          },
+          "dialogueTree": {
+            "id": "large_order_dialogue_01",
+            "I_entry": ["", ""],
+            "II_additional": ["", "", "", "", "", ""],
+            "III_hoverHints": [
+              {"materialId": "lettuce", "nearby": ["", "", ""], "exact": []}
+            ],
+            "IV_afterCooking": ["", ""]
+          }
+        },
+        {
+          "id": "large_order_menu_02",
+          "name": "",
+          "recipe": {
+            "ingredients": [
+              {"materialId": "tortilla", "quantity": 1},
+              {"materialId": "tomato", "quantity": 1},
+              {"materialId": "egg_mayo", "quantity": 1}
+            ]
+          },
+          "dialogueTree": {
+            "id": "large_order_dialogue_02",
+            "I_entry": ["", ""],
+            "II_additional": ["", "", "", "", "", ""],
+            "III_hoverHints": [
+              {"materialId": "tomato", "nearby": ["", "", ""], "exact": []}
+            ],
+            "IV_afterCooking": ["", ""]
+          }
+        },
+        {
+          "id": "large_order_menu_03",
+          "name": "",
+          "recipe": {
+            "ingredients": [
+              {"materialId": "seaweed_and_rice", "quantity": 1},
+              {"materialId": "burdock", "quantity": 1},
+              {"materialId": "pickled_radish", "quantity": 1}
+            ]
+          },
+          "dialogueTree": {
+            "id": "large_order_dialogue_03",
+            "I_entry": ["", ""],
+            "II_additional": ["", "", "", "", "", ""],
+            "III_hoverHints": [
+              {"materialId": "seaweed_and_rice", "nearby": ["", "", ""], "exact": []}
+            ],
+            "IV_afterCooking": ["", ""]
+          }
+        }
+      ]
+    },
+    {
+      "id": "tmi",
+      "name": "TMI",
+      "menus": [
+        {
+          "id": "tmi_menu_01",
+          "name": "",
+          "recipe": {
+            "ingredients": [
+              {"materialId": "tortilla", "quantity": 1},
+              {"materialId": "lettuce", "quantity": 2},
+              {"materialId": "raw_carrot", "quantity": 1}
+            ]
+          },
+          "dialogueTree": {
+            "id": "tmi_dialogue_01",
+            "I_entry": ["", ""],
+            "II_additional": ["", "", "", "", "", "", "", ""],
+            "III_hoverHints": [
+              {"materialId": "lettuce", "nearby": ["", "", ""], "exact": []}
+            ],
+            "IV_afterCooking": ["", ""]
+          }
+        },
+        {
+          "id": "tmi_menu_02",
+          "name": "",
+          "recipe": {
+            "ingredients": [
+              {"materialId": "tortilla", "quantity": 1},
+              {"materialId": "tomato", "quantity": 1},
+              {"materialId": "egg_mayo", "quantity": 1}
+            ]
+          },
+          "dialogueTree": {
+            "id": "tmi_dialogue_02",
+            "I_entry": ["", ""],
+            "II_additional": ["", "", "", "", "", "", "", ""],
+            "III_hoverHints": [
+              {"materialId": "tomato", "nearby": ["", "", ""], "exact": []}
+            ],
+            "IV_afterCooking": ["", ""]
+          }
+        },
+        {
+          "id": "tmi_menu_03",
+          "name": "",
+          "recipe": {
+            "ingredients": [
+              {"materialId": "seaweed_and_rice", "quantity": 1},
+              {"materialId": "burdock", "quantity": 1},
+              {"materialId": "pickled_radish", "quantity": 1}
+            ]
+          },
+          "dialogueTree": {
+            "id": "tmi_dialogue_03",
+            "I_entry": ["", ""],
+            "II_additional": ["", "", "", "", "", "", "", ""],
+            "III_hoverHints": [
+              {"materialId": "seaweed_and_rice", "nearby": ["", "", ""], "exact": []}
+            ],
+            "IV_afterCooking": ["", ""]
+          }
+        }
+      ]
+    },
+    {
+      "id": "silent",
+      "name": "침묵",
+      "menus": [
+        {
+          "id": "silent_menu_01",
+          "name": "",
+          "recipe": {
+            "ingredients": [
+              {"materialId": "tortilla", "quantity": 1},
+              {"materialId": "lettuce", "quantity": 2},
+              {"materialId": "raw_carrot", "quantity": 1}
+            ]
+          },
+          "dialogueTree": {
+            "id": "silent_dialogue_01",
+            "I_entry": ["", ""],
+            "II_additional": [""],
+            "III_hoverHints": [
+              {"materialId": "lettuce", "nearby": [""], "exact": []}
+            ],
+            "IV_afterCooking": ["", ""]
+          }
+        },
+        {
+          "id": "silent_menu_02",
+          "name": "",
+          "recipe": {
+            "ingredients": [
+              {"materialId": "tortilla", "quantity": 1},
+              {"materialId": "tomato", "quantity": 1},
+              {"materialId": "egg_mayo", "quantity": 1}
+            ]
+          },
+          "dialogueTree": {
+            "id": "silent_dialogue_02",
+            "I_entry": ["", ""],
+            "II_additional": [""],
+            "III_hoverHints": [
+              {"materialId": "tomato", "nearby": [""], "exact": []}
+            ],
+            "IV_afterCooking": ["", ""]
+          }
+        },
+        {
+          "id": "silent_menu_03",
+          "name": "",
+          "recipe": {
+            "ingredients": [
+              {"materialId": "seaweed_and_rice", "quantity": 1},
+              {"materialId": "burdock", "quantity": 1},
+              {"materialId": "pickled_radish", "quantity": 1}
+            ]
+          },
+          "dialogueTree": {
+            "id": "silent_dialogue_03",
+            "I_entry": ["", ""],
+            "II_additional": [""],
+            "III_hoverHints": [
+              {"materialId": "seaweed_and_rice", "nearby": [""], "exact": []}
+            ],
+            "IV_afterCooking": ["", ""]
+          }
+        }
+      ]
     }
   ]
 }
