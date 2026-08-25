@@ -39,7 +39,8 @@ constexpr int kMaterialBinFirstRowBottom = 342;
 constexpr int kMaterialBinRowGap = 9;
 constexpr int kMaterialBinColumnGap = 9;
 constexpr int kMaterialBinBorderWidth = 2;
-constexpr int kPngSocketSize = 18;
+constexpr int kPngSocketSize = 64;
+constexpr int kMaterialImageSourceSize = 16;
 constexpr double kPngSocketHoverScale = 1.05;
 constexpr double kPngSocketEasingSpeed = 0.20;
 constexpr int kMaterialBinVerticalOffset = 5;
@@ -1061,23 +1062,26 @@ void DrawMaterialImage(HDC dc, int materialIndex, const RECT& area) {
         Gdiplus::Graphics graphics(dc);
         graphics.SetInterpolationMode(Gdiplus::InterpolationModeNearestNeighbor);
         graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
+        graphics.SetSmoothingMode(Gdiplus::SmoothingModeNone);
+        graphics.SetCompositingQuality(Gdiplus::CompositingQualityHighSpeed);
         graphics.DrawImage(
             gMaterialImages[materialIndex],
             Gdiplus::Rect(
                 area.left,
                 area.top,
                 area.right - area.left,
-                area.bottom - area.top));
+                area.bottom - area.top),
+            0,
+            0,
+            kMaterialImageSourceSize,
+            kMaterialImageSourceSize,
+            Gdiplus::UnitPixel);
     }
 }
 
 void DrawPngSocket(HDC dc, int binIndex, const RECT& socket) {
-    // PNG8 이미지는 원근 변형 없이 정방형 소켓 전체에 그대로 그린다.
-    FillSolid(dc, socket, kTileWhite);
+    // 투명 PNG만 재료통 중앙에 표시하며 별도 배경이나 테두리는 그리지 않는다.
     DrawMaterialImage(dc, binIndex, socket);
-    const HBRUSH frameBrush = CreateSolidBrush(kShelfDarkColor);
-    FrameRect(dc, &socket, frameBrush);
-    DeleteObject(frameBrush);
 }
 
 void DrawPngSockets(HDC dc, const Layout& layout) {
