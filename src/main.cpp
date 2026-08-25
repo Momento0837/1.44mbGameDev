@@ -15,6 +15,9 @@ namespace {
 
 constexpr wchar_t kWindowClass[] = L"OnePointFourFourMBGameWindow";
 constexpr wchar_t kWindowTitle[] = L"1.44MB Game";
+constexpr wchar_t kDefaultUiFontName[] = L"DOSMyungjo";
+constexpr wchar_t kTitleFontName[] = L"DOSMyungjo";
+constexpr wchar_t kNarrationFontName[] = L"DOSPilgi";
 
 constexpr int kDesignWidth = 800;
 constexpr int kDesignHeight = 600;
@@ -92,6 +95,26 @@ constexpr int kTitleButtonFontHeight = 30;
 constexpr int kTitleButtonPadding = 5;
 constexpr double kTitleButtonHoverScale = 1.05;
 constexpr double kTitleButtonEasingSpeed = 0.20;
+constexpr int kMoneyUiMargin = 12;
+constexpr int kMoneyCoinSourceSize = 16;
+constexpr int kMoneyCoinDisplaySize = 32;
+constexpr int kMoneyTextGap = 8;
+constexpr int kMoneyTextWidth = 120;
+constexpr int kMoneyFontHeight = 24;
+constexpr int kStartBusinessButtonWidth = 112;
+constexpr int kStartBusinessButtonHeight = 40;
+constexpr int kStartBusinessButtonRadius = 8;
+constexpr double kPreparationUiFadeSeconds = 0.5;
+constexpr double kCountdownStepSeconds = 1.0;
+constexpr int kCountdownStepCount = 4;
+constexpr double kCountdownPulseScale = 1.05;
+constexpr double kNpcEntranceSeconds = 1.0;
+constexpr double kNarrationAppearanceDelaySeconds = 0.5;
+constexpr double kNarrationFadeInSeconds = 0.5;
+constexpr wchar_t kOwnedMoneyCoinImagePath[] =
+    L"ui\\owned_money_coin.png";
+constexpr wchar_t kEarnedMoneyCoinImagePath[] =
+    L"ui\\earned_money_coin.png";
 constexpr int kExitDialogWidth = 300;
 constexpr int kExitDialogHeight = 200;
 constexpr int kExitDialogButtonWidth = 80;
@@ -103,7 +126,7 @@ constexpr wchar_t kTitleButtonLabels[3][16] = {
 };
 constexpr int kTitleButtonCenterY[3] = {365, 425, 485};
 
-constexpr COLORREF kLetterboxColor = RGB(0x00, 0x00, 0x00);
+constexpr COLORREF kLetterboxColor = RGB(0x0d, 0x0d, 0x0d);
 constexpr COLORREF kTileGreen = RGB(0xa8, 0xcb, 0xa9);
 constexpr COLORREF kTileWhite = RGB(0xf2, 0xfb, 0xf1);
 constexpr COLORREF kSkyColor = RGB(0x77, 0xcb, 0xe8);
@@ -126,6 +149,8 @@ constexpr COLORREF kTitlePlaceholderColor = RGB(0x77, 0xcb, 0xe8);
 constexpr COLORREF kExitDialogColor = RGB(0x2a, 0x2a, 0x2a);
 constexpr COLORREF kExitYesButtonColor = RGB(0x94, 0xc2, 0x93);
 constexpr COLORREF kExitNoButtonColor = RGB(0xd9, 0x9a, 0x9a);
+constexpr COLORREF kCoinPlaceholderColor = RGB(0x32, 0xcd, 0x32);
+constexpr COLORREF kStartBusinessButtonColor = RGB(0x94, 0xc2, 0x93);
 
 constexpr int kMaterialBinColumns = 7;
 constexpr int kMaterialBinRows = 2;
@@ -156,7 +181,11 @@ bool gIsTrackingMouse = false;
 enum class ScreenState {
     Title,
     TitleFadingOut,
-    GameFadingIn,
+    PreparationFadingIn,
+    Preparation,
+    Countdown,
+    NpcEntering,
+    NarrationStarting,
     Game
 };
 ScreenState gScreenState = ScreenState::Title;
@@ -166,6 +195,11 @@ int gHoveredTitleButton = -1;
 double gTitleButtonScales[3]{1.0, 1.0, 1.0};
 RECT gTitleButtonRects[3]{};
 bool gIsExitDialogVisible = false;
+ULONGLONG gPreparationSequenceStartTime = 0;
+ULONGLONG gNarrationFadeStartTime = 0;
+bool gIsNarrationBoxInteractive = false;
+long long gOwnedMoney = 0;
+long long gEarnedMoney = 0;
 
 bool gIsTableHovered = false;
 double gTableLift = 0.0;
@@ -217,6 +251,8 @@ size_t gCurrentDialogueStep = 0;
 std::wstring gAssetsDirectory;
 ULONG_PTR gGdiplusToken = 0;
 Gdiplus::Image* gMaterialImages[kMaterialBinCount]{};
+Gdiplus::Image* gOwnedMoneyCoinImage = nullptr;
+Gdiplus::Image* gEarnedMoneyCoinImage = nullptr;
 
 std::wstring GetExecutableDirectory() {
     wchar_t path[MAX_PATH]{};
@@ -479,11 +515,33 @@ void LoadMaterialImages() {
     }
 }
 
+Gdiplus::Image* LoadOptionalImage(const wchar_t* relativePath) {
+    const std::wstring imagePath = gAssetsDirectory + relativePath;
+    Gdiplus::Image* image = Gdiplus::Image::FromFile(imagePath.c_str(), FALSE);
+    if (image != nullptr && image->GetLastStatus() == Gdiplus::Ok) {
+        return image;
+    }
+    delete image;
+    return nullptr;
+}
+
+void LoadMoneyImages() {
+    gOwnedMoneyCoinImage = LoadOptionalImage(kOwnedMoneyCoinImagePath);
+    gEarnedMoneyCoinImage = LoadOptionalImage(kEarnedMoneyCoinImagePath);
+}
+
 void UnloadMaterialImages() {
     for (Gdiplus::Image*& image : gMaterialImages) {
         delete image;
         image = nullptr;
     }
+}
+
+void UnloadMoneyImages() {
+    delete gOwnedMoneyCoinImage;
+    gOwnedMoneyCoinImage = nullptr;
+    delete gEarnedMoneyCoinImage;
+    gEarnedMoneyCoinImage = nullptr;
 }
 
 struct Layout {
@@ -924,7 +982,7 @@ void DrawMousePosition(HDC dc, const Layout& layout) {
         CLIP_DEFAULT_PRECIS,
         CLEARTYPE_QUALITY,
         DEFAULT_PITCH | FF_DONTCARE,
-        L"맑은 고딕");
+        kDefaultUiFontName);
     const HGDIOBJ oldFont = SelectObject(dc, font);
     const int oldBackgroundMode = SetBkMode(dc, TRANSPARENT);
     const COLORREF oldTextColor = SetTextColor(dc, RGB(0xff, 0xff, 0xff));
@@ -972,6 +1030,9 @@ void StartRandomDialogueTree() {
 }
 
 void AdvanceNarration() {
+    if (!gIsNarrationBoxInteractive) {
+        return;
+    }
     if (!gIsNarrationActive) {
         StartRandomDialogueTree();
         return;
@@ -1021,7 +1082,7 @@ void DrawNarration(HDC dc, const Layout& layout) {
         CLIP_DEFAULT_PRECIS,
         CLEARTYPE_QUALITY,
         DEFAULT_PITCH | FF_DONTCARE,
-        L"맑은 고딕");
+        kNarrationFontName);
     HGDIOBJ oldFont = SelectObject(dc, nameFont);
     const int oldBackgroundMode = SetBkMode(dc, TRANSPARENT);
     const COLORREF oldTextColor = SetTextColor(dc, RGB(0xff, 0xff, 0xff));
@@ -1052,7 +1113,7 @@ void DrawNarration(HDC dc, const Layout& layout) {
         CLIP_DEFAULT_PRECIS,
         CLEARTYPE_QUALITY,
         DEFAULT_PITCH | FF_DONTCARE,
-        L"맑은 고딕");
+        kNarrationFontName);
     SelectObject(dc, dialogueFont);
     const POINT textPosition = LogicalPoint(
         layout,
@@ -1079,7 +1140,8 @@ double SmoothStep(double progress) {
 HFONT CreateUiFont(
     const Layout& layout,
     double logicalHeight,
-    int weight = FW_NORMAL) {
+    int weight = FW_NORMAL,
+    const wchar_t* fontName = kDefaultUiFontName) {
     const int fontHeight = (std::max)(
         1,
         static_cast<int>(std::lround(logicalHeight * layout.scale)));
@@ -1097,7 +1159,7 @@ HFONT CreateUiFont(
         CLIP_DEFAULT_PRECIS,
         CLEARTYPE_QUALITY,
         DEFAULT_PITCH | FF_DONTCARE,
-        L"맑은 고딕");
+        fontName);
 }
 
 void DrawCenteredText(
@@ -1107,8 +1169,9 @@ void DrawCenteredText(
     const wchar_t* text,
     double fontHeight,
     COLORREF color,
-    int weight = FW_NORMAL) {
-    const HFONT font = CreateUiFont(layout, fontHeight, weight);
+    int weight = FW_NORMAL,
+    const wchar_t* fontName = kDefaultUiFontName) {
+    const HFONT font = CreateUiFont(layout, fontHeight, weight, fontName);
     const HGDIOBJ oldFont = SelectObject(dc, font);
     const int oldBackgroundMode = SetBkMode(dc, TRANSPARENT);
     const COLORREF oldTextColor = SetTextColor(dc, color);
@@ -1128,6 +1191,270 @@ void DrawCenteredText(
     SetBkMode(dc, oldBackgroundMode);
     SelectObject(dc, oldFont);
     DeleteObject(font);
+}
+
+template<typename DrawFunction>
+void DrawWithOpacity(
+    HDC dc,
+    const RECT& area,
+    BYTE opacity,
+    DrawFunction drawFunction) {
+    if (opacity == 0 || area.right <= area.left || area.bottom <= area.top) {
+        return;
+    }
+    if (opacity == 255) {
+        drawFunction(dc);
+        return;
+    }
+
+    const int width = area.right - area.left;
+    const int height = area.bottom - area.top;
+    HDC layerDc = CreateCompatibleDC(dc);
+    HBITMAP layerBitmap = CreateCompatibleBitmap(dc, width, height);
+    HGDIOBJ oldBitmap = SelectObject(layerDc, layerBitmap);
+    BitBlt(layerDc, 0, 0, width, height, dc, area.left, area.top, SRCCOPY);
+    SetViewportOrgEx(layerDc, -area.left, -area.top, nullptr);
+    drawFunction(layerDc);
+    SetViewportOrgEx(layerDc, 0, 0, nullptr);
+
+    const BLENDFUNCTION blend{AC_SRC_OVER, 0, opacity, 0};
+    AlphaBlend(
+        dc,
+        area.left,
+        area.top,
+        width,
+        height,
+        layerDc,
+        0,
+        0,
+        width,
+        height,
+        blend);
+
+    SelectObject(layerDc, oldBitmap);
+    DeleteObject(layerBitmap);
+    DeleteDC(layerDc);
+}
+
+double NarrationBoxOpacity() {
+    if (gNarrationFadeStartTime == 0) {
+        return 0.0;
+    }
+    const double elapsed = (
+        GetTickCount64() - gNarrationFadeStartTime) / 1000.0;
+    return SmoothStep(elapsed / kNarrationFadeInSeconds);
+}
+
+void DrawNarrationOverlay(HDC dc, const Layout& layout) {
+    const double opacity = NarrationBoxOpacity();
+    if (opacity <= 0.0) {
+        return;
+    }
+
+    const RECT narrationBox = NarrationBoxRect(layout);
+    DrawWithOpacity(
+        dc,
+        narrationBox,
+        static_cast<BYTE>(std::lround(opacity * 255.0)),
+        [&](HDC targetDc) {
+            FillTranslucent(
+                targetDc,
+                narrationBox,
+                RGB(0x2a, 0x2a, 0x2a),
+                222);
+            DrawNarration(targetDc, layout);
+        });
+}
+
+RECT MoneyUiRect() {
+    const int left = kPlayAreaX + kMoneyUiMargin;
+    const int top = kPlayAreaY + kMoneyUiMargin;
+    return {
+        left,
+        top,
+        left + kMoneyCoinDisplaySize + kMoneyTextGap + kMoneyTextWidth,
+        top + kMoneyCoinDisplaySize
+    };
+}
+
+RECT StartBusinessButtonRect() {
+    const int right = kPlayAreaX + kPlayAreaSize - kMoneyUiMargin;
+    const int top = kPlayAreaY + kMoneyUiMargin;
+    return {
+        right - kStartBusinessButtonWidth,
+        top,
+        right,
+        top + kStartBusinessButtonHeight
+    };
+}
+
+void DrawMoneyInterface(
+    HDC dc,
+    const Layout& layout,
+    bool showOwnedMoney,
+    BYTE opacity) {
+    const RECT logicalArea = MoneyUiRect();
+    const RECT area = LogicalRect(
+        layout,
+        logicalArea.left,
+        logicalArea.top,
+        logicalArea.right - logicalArea.left,
+        logicalArea.bottom - logicalArea.top);
+    DrawWithOpacity(dc, area, opacity, [&](HDC targetDc) {
+        const RECT coinArea = LogicalRect(
+            layout,
+            logicalArea.left,
+            logicalArea.top,
+            kMoneyCoinDisplaySize,
+            kMoneyCoinDisplaySize);
+        Gdiplus::Image* coinImage = showOwnedMoney
+            ? gOwnedMoneyCoinImage
+            : gEarnedMoneyCoinImage;
+        if (coinImage != nullptr) {
+            Gdiplus::Graphics graphics(targetDc);
+            graphics.SetInterpolationMode(
+                Gdiplus::InterpolationModeNearestNeighbor);
+            graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
+            graphics.DrawImage(
+                coinImage,
+                Gdiplus::Rect(
+                    coinArea.left,
+                    coinArea.top,
+                    coinArea.right - coinArea.left,
+                    coinArea.bottom - coinArea.top),
+                0,
+                0,
+                kMoneyCoinSourceSize,
+                kMoneyCoinSourceSize,
+                Gdiplus::UnitPixel);
+        } else {
+            FillSolid(targetDc, coinArea, kCoinPlaceholderColor);
+        }
+
+        RECT textArea = LogicalRect(
+            layout,
+            logicalArea.left + kMoneyCoinDisplaySize + kMoneyTextGap,
+            logicalArea.top,
+            kMoneyTextWidth,
+            kMoneyCoinDisplaySize);
+        const std::wstring amount = std::to_wstring(
+            showOwnedMoney ? gOwnedMoney : gEarnedMoney);
+        const HFONT font = CreateUiFont(layout, kMoneyFontHeight, FW_BOLD);
+        const HGDIOBJ oldFont = SelectObject(targetDc, font);
+        const int oldBackgroundMode = SetBkMode(targetDc, TRANSPARENT);
+        const COLORREF oldTextColor = SetTextColor(
+            targetDc, RGB(0xff, 0xff, 0xff));
+        DrawText(
+            targetDc,
+            amount.c_str(),
+            -1,
+            &textArea,
+            DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+        SetTextColor(targetDc, oldTextColor);
+        SetBkMode(targetDc, oldBackgroundMode);
+        SelectObject(targetDc, oldFont);
+        DeleteObject(font);
+    });
+}
+
+void DrawStartBusinessButton(HDC dc, const Layout& layout, BYTE opacity) {
+    const RECT logicalButton = StartBusinessButtonRect();
+    const RECT button = LogicalRect(
+        layout,
+        logicalButton.left,
+        logicalButton.top,
+        kStartBusinessButtonWidth,
+        kStartBusinessButtonHeight);
+    DrawWithOpacity(dc, button, opacity, [&](HDC targetDc) {
+        FillRoundedRect(
+            targetDc,
+            button,
+            static_cast<int>(std::lround(
+                kStartBusinessButtonRadius * layout.scale)),
+            kStartBusinessButtonColor);
+        DrawCenteredText(
+            targetDc,
+            layout,
+            logicalButton,
+            L"장사 시작",
+            20.0,
+            RGB(0x18, 0x2a, 0x18),
+            FW_BOLD);
+    });
+}
+
+void DrawCountdown(HDC dc, const Layout& layout) {
+    const double elapsed = (
+        GetTickCount64() - gPreparationSequenceStartTime) / 1000.0;
+    const int step = (std::min)(
+        kCountdownStepCount - 1,
+        static_cast<int>(elapsed / kCountdownStepSeconds));
+    constexpr wchar_t labels[kCountdownStepCount][8] = {
+        L"3", L"2", L"1", L"시작!"
+    };
+    const double stepElapsed = std::fmod(elapsed, kCountdownStepSeconds);
+    const double stepProgress = stepElapsed / kCountdownStepSeconds;
+    constexpr double pi = 3.14159265358979323846;
+    const double pulse = std::sin(stepProgress * pi);
+    const double fontHeight = 64.0
+        * (1.0 + (kCountdownPulseScale - 1.0) * pulse);
+    const RECT countdownArea{
+        kPlayAreaX,
+        kPlayAreaY + kPlayAreaSize / 2 - 60,
+        kPlayAreaX + kPlayAreaSize,
+        kPlayAreaY + kPlayAreaSize / 2 + 60
+    };
+    DrawCenteredText(
+        dc,
+        layout,
+        countdownArea,
+        labels[step],
+        fontHeight,
+        kLetterboxColor,
+        FW_BOLD);
+}
+
+void DrawPreparationSequenceUi(HDC dc, const Layout& layout) {
+    if (gScreenState == ScreenState::PreparationFadingIn
+        || gScreenState == ScreenState::Preparation) {
+        DrawMoneyInterface(dc, layout, true, 255);
+        DrawStartBusinessButton(dc, layout, 255);
+    } else if (gScreenState == ScreenState::Countdown) {
+        const double elapsed = (
+            GetTickCount64() - gPreparationSequenceStartTime) / 1000.0;
+        const double uiTransitionSeconds = kPreparationUiFadeSeconds * 2.0;
+        const double buttonOpacity = 1.0 - SmoothStep(
+            elapsed / uiTransitionSeconds);
+        if (elapsed < kPreparationUiFadeSeconds) {
+            const double fadeOut = 1.0 - SmoothStep(
+                elapsed / kPreparationUiFadeSeconds);
+            DrawMoneyInterface(
+                dc,
+                layout,
+                true,
+                static_cast<BYTE>(std::lround(fadeOut * 255.0)));
+        } else {
+            const double fadeIn = SmoothStep(
+                (elapsed - kPreparationUiFadeSeconds)
+                    / kPreparationUiFadeSeconds);
+            DrawMoneyInterface(
+                dc,
+                layout,
+                false,
+                static_cast<BYTE>(std::lround(fadeIn * 255.0)));
+        }
+        DrawStartBusinessButton(
+            dc,
+            layout,
+            static_cast<BYTE>(std::lround(buttonOpacity * 255.0)));
+        DrawCountdown(dc, layout);
+    } else if (gScreenState == ScreenState::NpcEntering) {
+        DrawMoneyInterface(dc, layout, false, 255);
+    } else if (gScreenState == ScreenState::NarrationStarting) {
+        DrawMoneyInterface(dc, layout, false, 255);
+    } else if (gScreenState == ScreenState::Game) {
+        DrawMoneyInterface(dc, layout, false, 255);
+    }
 }
 
 RECT ExitDialogRect() {
@@ -1294,7 +1621,11 @@ void DrawTitleScreen(HDC dc, const RECT& client) {
     for (int index = 0; index < 3; ++index) {
         const double fontHeight = kTitleButtonFontHeight
             * gTitleButtonScales[index];
-        const HFONT font = CreateUiFont(layout, fontHeight);
+        const HFONT font = CreateUiFont(
+            layout,
+            fontHeight,
+            FW_NORMAL,
+            kTitleFontName);
         const HGDIOBJ oldFont = SelectObject(dc, font);
         SIZE textSize{};
         GetTextExtentPoint32(
@@ -1323,7 +1654,9 @@ void DrawTitleScreen(HDC dc, const RECT& client) {
             gTitleButtonRects[index],
             kTitleButtonLabels[index],
             fontHeight,
-            RGB(0xff, 0xff, 0xff));
+            RGB(0xff, 0xff, 0xff),
+            FW_NORMAL,
+            kTitleFontName);
     }
 
     if (gIsExitDialogVisible) {
@@ -1340,7 +1673,7 @@ void DrawTitleScreen(HDC dc, const RECT& client) {
     }
 }
 
-void StartGameScreenTransition() {
+void StartPreparationScreenTransition() {
     if (!IsTitleInteractive() || gIsExitDialogVisible) {
         return;
     }
@@ -1435,9 +1768,8 @@ void DrawGame(HDC dc, const RECT& client) {
         DrawResetButton(dc, layout);
     }
 
-    // 최상단 암막은 플레이 영역과 레터박스 양쪽에 반투명하게 걸친다.
-    FillTranslucent(dc, NarrationBoxRect(layout), RGB(0x2a, 0x2a, 0x2a), 222);
-    DrawNarration(dc, layout);
+    // NPC 입장 후에는 나레이션 박스와 대사가 함께 페이드인한다.
+    DrawNarrationOverlay(dc, layout);
 
     // 기능 배치를 위한 화면 좌표와 플레이 영역 좌표를 좌측 하단에 표시한다.
     DrawMousePosition(dc, layout);
@@ -1451,7 +1783,9 @@ void DrawApplication(HDC dc, const RECT& client) {
     }
 
     DrawGame(dc, client);
-    if (gScreenState == ScreenState::GameFadingIn) {
+    const Layout layout = GetLayout(client);
+    DrawPreparationSequenceUi(dc, layout);
+    if (gScreenState == ScreenState::PreparationFadingIn) {
         const double elapsed = (
             GetTickCount64() - gScreenTransitionStartTime) / 1000.0;
         const double opacity = SmoothStep(elapsed / kScreenFadeSeconds);
@@ -1598,13 +1932,26 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
                 designX,
                 designY);
             if (clickedTitleButton == 0) {
-                StartGameScreenTransition();
+                StartPreparationScreenTransition();
                 InvalidateRect(window, nullptr, FALSE);
             } else if (clickedTitleButton == 1) {
                 // 옵션 기능은 사운드 시스템을 추가할 때 이 위치에 연결한다.
             } else if (clickedTitleButton == 2) {
                 gIsExitDialogVisible = true;
                 gHoveredTitleButton = -1;
+                InvalidateRect(window, nullptr, FALSE);
+            }
+            return 0;
+        }
+
+        if (gScreenState == ScreenState::Preparation) {
+            const POINT logicalMouse{designX, designY};
+            const RECT startButton = StartBusinessButtonRect();
+            if (PtInRect(&startButton, logicalMouse)) {
+                gScreenState = ScreenState::Countdown;
+                gPreparationSequenceStartTime = GetTickCount64();
+                gIsTableHovered = false;
+                gHoveredPngSocket = -1;
                 InvalidateRect(window, nullptr, FALSE);
             }
             return 0;
@@ -1618,7 +1965,8 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
         const RECT narrationBox = NarrationBoxRect(layout);
         const RECT resetButton = ResetButtonRect(layout);
         const int clickedSocket = HitTestPngSocket();
-        if (PtInRect(&narrationBox, mousePoint)) {
+        if (gIsNarrationBoxInteractive
+            && PtInRect(&narrationBox, mousePoint)) {
             AdvanceNarration();
             InvalidateRect(window, nullptr, FALSE);
         } else if (IsCookingStateActive()
@@ -1687,21 +2035,60 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
                 const double elapsed = (
                     now - gScreenTransitionStartTime) / 1000.0;
                 if (elapsed >= kScreenFadeSeconds) {
-                    gScreenState = ScreenState::GameFadingIn;
+                    gScreenState = ScreenState::PreparationFadingIn;
                     gScreenTransitionStartTime = now;
                     gIsTableHovered = false;
                     gHoveredPngSocket = -1;
                 }
-            } else if (gScreenState == ScreenState::GameFadingIn) {
+            } else if (gScreenState == ScreenState::PreparationFadingIn) {
                 const double elapsed = (
                     now - gScreenTransitionStartTime) / 1000.0;
                 visualChanged = true;
                 if (elapsed >= kScreenFadeSeconds) {
+                    gScreenState = ScreenState::Preparation;
+                }
+            } else if (gScreenState == ScreenState::Countdown) {
+                const double elapsed = (
+                    now - gPreparationSequenceStartTime) / 1000.0;
+                visualChanged = true;
+                if (elapsed >= kCountdownStepSeconds * kCountdownStepCount) {
+                    gScreenState = ScreenState::NpcEntering;
+                    gPreparationSequenceStartTime = now;
+                }
+            } else if (gScreenState == ScreenState::NpcEntering) {
+                const double elapsed = (
+                    now - gPreparationSequenceStartTime) / 1000.0;
+                visualChanged = true;
+                if (elapsed >= kNpcEntranceSeconds) {
+                    gScreenState = ScreenState::NarrationStarting;
+                    gPreparationSequenceStartTime = now;
+                }
+            } else if (gScreenState == ScreenState::NarrationStarting) {
+                const double elapsed = (
+                    now - gPreparationSequenceStartTime) / 1000.0;
+                visualChanged = true;
+                if (elapsed >= kNarrationAppearanceDelaySeconds
+                    && gNarrationFadeStartTime == 0) {
+                    gNarrationFadeStartTime = now;
+                    gNpcOrderState = NpcOrderState::Ordering;
+                    StartRandomDialogueTree();
+                }
+                if (elapsed >= kNarrationAppearanceDelaySeconds
+                        + kNarrationFadeInSeconds) {
                     gScreenState = ScreenState::Game;
                 }
             }
 
-            if (gScreenState == ScreenState::Game) {
+            if (gNarrationFadeStartTime != 0) {
+                const double narrationFadeElapsed = (
+                    now - gNarrationFadeStartTime) / 1000.0;
+                if (narrationFadeElapsed < kNarrationFadeInSeconds) {
+                    visualChanged = true;
+                } else if (!gIsNarrationBoxInteractive) {
+                    gIsNarrationBoxInteractive = true;
+                    visualChanged = true;
+                }
+
                 if (gIsNarrationActive && gIsNarrationTyping) {
                     const ULONGLONG elapsed = now - gNarrationStartTime;
                     const size_t nextVisibleLength = (std::min)(
@@ -1719,7 +2106,9 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
                         gIsNarrationTyping = false;
                     }
                 }
+            }
 
+            if (gScreenState == ScreenState::Game) {
                 const double previousLift = gTableLift;
                 if (gIsCookingTransitionRunning) {
                     const double elapsedSeconds = (
@@ -1827,6 +2216,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
         return 1;
     }
     LoadMaterialImages();
+    LoadMoneyImages();
 
     WNDCLASSEX windowClass{};
     windowClass.cbSize = sizeof(windowClass);
@@ -1838,6 +2228,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
     windowClass.lpszClassName = kWindowClass;
 
     if (!RegisterClassEx(&windowClass)) {
+        UnloadMoneyImages();
         UnloadMaterialImages();
         Gdiplus::GdiplusShutdown(gGdiplusToken);
         return 1;
@@ -1855,6 +2246,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
         nullptr, nullptr, instance, nullptr);
 
     if (!window) {
+        UnloadMoneyImages();
         UnloadMaterialImages();
         Gdiplus::GdiplusShutdown(gGdiplusToken);
         return 1;
@@ -1875,6 +2267,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
         DispatchMessage(&message);
     }
 
+    UnloadMoneyImages();
     UnloadMaterialImages();
     Gdiplus::GdiplusShutdown(gGdiplusToken);
     return static_cast<int>(message.wParam);
