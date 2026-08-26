@@ -29,7 +29,7 @@ constexpr int kFloorColumns = 8;
 constexpr int kFloorRows = 3;
 constexpr double kFloorStartDepth = 0.07;
 constexpr double kFloorWidthScale = 1.12;
-constexpr double kFloorHeightScale = 0.30;
+constexpr double kFloorHeightScale = 0.35;
 constexpr int kDefaultVanishingPointX = kPlayAreaSize / 2;
 constexpr int kDefaultVanishingPointY = kPlayAreaSize / 2;
 
@@ -50,6 +50,12 @@ constexpr int kTableHoverTop = 275;
 constexpr int kTableHoverBottom = 400;
 constexpr double kTableLiftDistance = 10.0;
 constexpr double kTableEasingSpeed = 0.18;
+constexpr int kCookingEntryIndicatorGradientHeight = 10;
+constexpr int kCookingEntryIndicatorTriangleWidth = 10;
+constexpr int kCookingEntryIndicatorTriangleHeight = 6;
+constexpr double kCookingEntryIndicatorFadeSeconds = 0.5;
+constexpr double kCookingEntryIndicatorBounceHalfSeconds = 0.5;
+constexpr double kCookingEntryIndicatorBounceHeight = 3.0;
 constexpr int kTableTop = 278;
 constexpr int kCookingTableY = 150;
 constexpr double kCookingTableLift = kTableTop - kCookingTableY;
@@ -67,8 +73,10 @@ constexpr int kCuttingBoardCookingY = 300;
 constexpr int kCuttingBoardWidth = 160;
 constexpr int kCuttingBoardHeight = 78;
 constexpr int kCuttingBoardBorderWidth = 2;
-constexpr int kMaterialCloneSize = 24;
 constexpr int kMaximumMaterialClones = 64;
+constexpr int kMaximumStarParticles = 32;
+constexpr double kStarParticleGravity = 260.0;
+constexpr double kStarParticleSize = 7.0;
 constexpr int kResetButtonWidth = 50;
 constexpr int kResetButtonHeight = 30;
 constexpr int kResetButtonMargin = 10;
@@ -103,8 +111,8 @@ constexpr int kMoneyTextGap = 8;
 constexpr int kMoneyTextWidth = 120;
 constexpr int kMoneyFontHeight = 24;
 constexpr int kStartBusinessButtonWidth = 112;
-constexpr int kStartBusinessButtonHeight = 40;
-constexpr int kStartBusinessButtonRadius = 8;
+constexpr int kStartBusinessButtonHeight = kMoneyCoinDisplaySize;
+constexpr double kStartBusinessButtonOpacity = 0.70;
 constexpr double kPreparationUiFadeSeconds = 0.5;
 constexpr double kCountdownStepSeconds = 1.0;
 constexpr int kCountdownStepCount = 4;
@@ -112,13 +120,15 @@ constexpr double kCountdownPulseScale = 1.05;
 constexpr double kNpcEntranceSeconds = 1.0;
 constexpr double kNpcEntranceHorizontalFraction = 0.5;
 constexpr int kNpcSourceSize = 32;
-constexpr int kNpcDisplaySize = kNpcSourceSize * 4;
-constexpr int kNpcEntranceStartX = 430;
-constexpr int kNpcEntranceTargetX = 132;
+constexpr int kNpcDisplaySize = kNpcSourceSize * 5;
+constexpr int kNpcEntranceRightStartX = 430;
+constexpr int kNpcEntranceLeftStartX =
+    -kNpcDisplaySize - (kNpcEntranceRightStartX - kPlayAreaSize);
+constexpr int kNpcEntranceTargetX =
+    (kPlayAreaSize - kNpcDisplaySize) / 2;
 constexpr int kNpcEntranceStartBottomY = 200;
 constexpr int kNpcEntranceTargetBottomY = 300;
 constexpr double kNpcEntranceTargetScale = 1.10;
-constexpr wchar_t kNpcImagePath[] = L"npc\\npc.png";
 constexpr double kNpcDialogueBounceSeconds = 0.3;
 constexpr double kNpcDialogueBounceHeight = 30.0;
 constexpr ULONGLONG kNpcIdleStepMilliseconds = 500;
@@ -158,16 +168,12 @@ constexpr COLORREF kTableBorderColor = RGB(0x42, 0x29, 0x10);
 constexpr COLORREF kCuttingBoardColor = RGB(0xb6, 0xa1, 0x8c);
 constexpr COLORREF kCuttingBoardBorderColor = RGB(0x7c, 0x65, 0x4e);
 constexpr COLORREF kResetButtonColor = RGB(0x94, 0xc2, 0x93);
-constexpr COLORREF kClonePlaceholderColor = RGB(0xff, 0xea, 0x00);
 constexpr COLORREF kTitlePlaceholderColor = RGB(0x77, 0xcb, 0xe8);
 constexpr COLORREF kExitDialogColor = RGB(0x2a, 0x2a, 0x2a);
 constexpr COLORREF kExitYesButtonColor = RGB(0x94, 0xc2, 0x93);
 constexpr COLORREF kExitNoButtonColor = RGB(0xd9, 0x9a, 0x9a);
 constexpr COLORREF kCoinPlaceholderColor = RGB(0x32, 0xcd, 0x32);
 constexpr COLORREF kStartBusinessButtonColor = RGB(0x94, 0xc2, 0x93);
-constexpr COLORREF kNpcPlaceholderBodyColor = RGB(0xd9, 0x9a, 0xd9);
-constexpr COLORREF kNpcPlaceholderFaceColor = RGB(0xff, 0xd1, 0xb3);
-constexpr COLORREF kNpcPlaceholderAccentColor = RGB(0x42, 0x29, 0x10);
 
 constexpr int kMaterialBinColumns = 7;
 constexpr int kMaterialBinRows = 2;
@@ -251,6 +257,7 @@ enum class NpcOrderState {
     AfterOrder   // NPC 주문 끝남: 최초 주문 대사가 끝난 이후의 모든 상태
 };
 NpcOrderState gNpcOrderState = NpcOrderState::BeforeOrder;
+ULONGLONG gCookingEntryIndicatorStartTime = 0;
 
 // 추후 AfterOrder 상태에서 재료 호버 조건에 따라 추가 나레이션을 연결한다.
 CookingState gCookingTransitionTargetState = CookingState::NonCooking;
@@ -264,9 +271,21 @@ struct MaterialClone {
     int materialIndex;
     int x;
     int y;
+    int size;
+    float angle;
 };
 MaterialClone gMaterialClones[kMaximumMaterialClones]{};
 int gMaterialCloneCount = 0;
+struct StarParticle {
+    double x;
+    double y;
+    double velocityX;
+    double velocityY;
+    double angle;
+    double angularVelocity;
+};
+std::vector<StarParticle> gStarParticles;
+ULONGLONG gLastStarParticleUpdateTime = 0;
 unsigned int gRandomState = 0x144u;
 double gResetButtonOpacity = 0.0;
 bool gIsNarrationActive = false;
@@ -318,7 +337,53 @@ ULONG_PTR gGdiplusToken = 0;
 Gdiplus::Image* gMaterialImages[kMaterialBinCount]{};
 Gdiplus::Image* gOwnedMoneyCoinImage = nullptr;
 Gdiplus::Image* gEarnedMoneyCoinImage = nullptr;
-Gdiplus::Image* gNpcImage = nullptr;
+enum class NpcPart {
+    BackHair,
+    Bottom,
+    Top,
+    Face,
+    Eyes,
+    FrontHair,
+    Count
+};
+constexpr int kNpcPartCount = static_cast<int>(NpcPart::Count);
+constexpr int kMaximumNpcPartVariants = 4;
+constexpr int kNpcPartVariantCounts[kNpcPartCount] = {3, 3, 4, 1, 4, 3};
+constexpr wchar_t kNpcPartImagePaths
+    [kNpcPartCount][kMaximumNpcPartVariants][64] = {
+    {
+        L"npc\\back_hair\\back_hair_01.png",
+        L"npc\\back_hair\\back_hair_02.png",
+        L"npc\\back_hair\\back_hair_03.png"
+    },
+    {
+        L"npc\\bottom\\bottom_01.png",
+        L"npc\\bottom\\bottom_02.png",
+        L"npc\\bottom\\bottom_03.png"
+    },
+    {
+        L"npc\\top\\top_01.png",
+        L"npc\\top\\top_02.png",
+        L"npc\\top\\top_03.png",
+        L"npc\\top\\top_04.png"
+    },
+    {L"npc\\face\\face_01.png"},
+    {
+        L"npc\\eyes\\eyes_01.png",
+        L"npc\\eyes\\eyes_02.png",
+        L"npc\\eyes\\eyes_03.png",
+        L"npc\\eyes\\eyes_04.png"
+    },
+    {
+        L"npc\\front_hair\\front_hair_01.png",
+        L"npc\\front_hair\\front_hair_02.png",
+        L"npc\\front_hair\\front_hair_03.png"
+    }
+};
+Gdiplus::Image* gNpcPartImages
+    [kNpcPartCount][kMaximumNpcPartVariants]{};
+int gSelectedNpcPartVariants[kNpcPartCount]{};
+bool gNpcEntersFromLeft = false;
 
 std::wstring GetExecutableDirectory() {
     wchar_t path[MAX_PATH]{};
@@ -800,8 +865,15 @@ void LoadMoneyImages() {
     gEarnedMoneyCoinImage = LoadOptionalImage(kEarnedMoneyCoinImagePath);
 }
 
-void LoadNpcImage() {
-    gNpcImage = LoadOptionalImage(kNpcImagePath);
+void LoadNpcImages() {
+    for (int part = 0; part < kNpcPartCount; ++part) {
+        for (int variant = 0;
+            variant < kNpcPartVariantCounts[part];
+            ++variant) {
+            gNpcPartImages[part][variant] = LoadOptionalImage(
+                kNpcPartImagePaths[part][variant]);
+        }
+    }
 }
 
 void UnloadMaterialImages() {
@@ -818,9 +890,13 @@ void UnloadMoneyImages() {
     gEarnedMoneyCoinImage = nullptr;
 }
 
-void UnloadNpcImage() {
-    delete gNpcImage;
-    gNpcImage = nullptr;
+void UnloadNpcImages() {
+    for (auto& partImages : gNpcPartImages) {
+        for (Gdiplus::Image*& image : partImages) {
+            delete image;
+            image = nullptr;
+        }
+    }
 }
 
 struct Layout {
@@ -1079,8 +1155,88 @@ void DrawMaterialImage(HDC dc, int materialIndex, const RECT& area) {
     }
 }
 
+void RandomizeNpcAppearance() {
+    for (int part = 0; part < kNpcPartCount; ++part) {
+        const bool isHairPart = part == static_cast<int>(NpcPart::BackHair)
+            || part == static_cast<int>(NpcPart::FrontHair);
+        gSelectedNpcPartVariants[part] = RandomRange(
+            isHairPart ? -1 : 0,
+            kNpcPartVariantCounts[part] - 1);
+    }
+    gNpcEntersFromLeft = NextRandom() % 2 == 0;
+}
+
+void DrawMaterialShadow(HDC dc, int materialIndex, const RECT& area) {
+    if (materialIndex < 0
+        || materialIndex >= kMaterialBinCount
+        || gMaterialImages[materialIndex] == nullptr) {
+        return;
+    }
+
+    Gdiplus::Graphics graphics(dc);
+    graphics.SetInterpolationMode(Gdiplus::InterpolationModeNearestNeighbor);
+    graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
+    graphics.SetSmoothingMode(Gdiplus::SmoothingModeNone);
+    graphics.SetCompositingQuality(Gdiplus::CompositingQualityHighSpeed);
+    Gdiplus::ColorMatrix shadowMatrix = {
+        0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+        0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+        0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+        0.0f, 0.0f, 0.0f, 0.15f, 0.0f,
+        0.0f, 0.0f, 0.0f, 0.0f, 1.0f
+    };
+    Gdiplus::ImageAttributes attributes;
+    attributes.SetColorMatrix(
+        &shadowMatrix,
+        Gdiplus::ColorMatrixFlagsDefault,
+        Gdiplus::ColorAdjustTypeBitmap);
+    graphics.DrawImage(
+        gMaterialImages[materialIndex],
+        Gdiplus::Rect(
+            area.left,
+            area.top,
+            area.right - area.left,
+            area.bottom - area.top),
+        0,
+        0,
+        kMaterialImageSourceSize,
+        kMaterialImageSourceSize,
+        Gdiplus::UnitPixel,
+        &attributes);
+}
+
+void DrawRotatedMaterialImage(
+    HDC dc, int materialIndex, const RECT& area, float angle) {
+    if (materialIndex < 0
+        || materialIndex >= kMaterialBinCount
+        || gMaterialImages[materialIndex] == nullptr) {
+        return;
+    }
+
+    Gdiplus::Graphics graphics(dc);
+    graphics.SetInterpolationMode(Gdiplus::InterpolationModeNearestNeighbor);
+    graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
+    graphics.SetSmoothingMode(Gdiplus::SmoothingModeNone);
+    graphics.SetCompositingQuality(Gdiplus::CompositingQualityHighSpeed);
+    const float width = static_cast<float>(area.right - area.left);
+    const float height = static_cast<float>(area.bottom - area.top);
+    graphics.TranslateTransform(
+        (area.left + area.right) * 0.5f,
+        (area.top + area.bottom) * 0.5f);
+    graphics.RotateTransform(angle);
+    graphics.DrawImage(
+        gMaterialImages[materialIndex],
+        Gdiplus::RectF(-width * 0.5f, -height * 0.5f, width, height),
+        0,
+        0,
+        kMaterialImageSourceSize,
+        kMaterialImageSourceSize,
+        Gdiplus::UnitPixel);
+}
+
 void DrawPngSocket(HDC dc, int binIndex, const RECT& socket) {
     // 투명 PNG만 재료통 중앙에 표시하며 별도 배경이나 테두리는 그리지 않는다.
+    DrawMaterialShadow(dc, binIndex, socket);
     DrawMaterialImage(dc, binIndex, socket);
 }
 
@@ -1137,11 +1293,10 @@ void DrawCuttingBoardAndClones(HDC dc, const Layout& layout) {
             layout,
             clone.x,
             clone.y,
-            kMaterialCloneSize,
-            kMaterialCloneSize);
-        // PNG 복제 위치를 확인할 수 있도록 임시 노란색 박스를 먼저 그린다.
-        FillSolid(dc, imageArea, kClonePlaceholderColor);
-        DrawMaterialImage(dc, clone.materialIndex, imageArea);
+            clone.size,
+            clone.size);
+        DrawRotatedMaterialImage(
+            dc, clone.materialIndex, imageArea, clone.angle);
     }
 }
 
@@ -1157,12 +1312,94 @@ void AddMaterialClone(int materialIndex) {
     const int boardTop = kPlayAreaY + CuttingBoardBaseY();
     MaterialClone& clone = gMaterialClones[gMaterialCloneCount++];
     clone.materialIndex = materialIndex;
+    clone.size = static_cast<int>(std::lround(
+        kPngSocketSize * RandomRange(95, 105) / 100.0));
+    clone.angle = static_cast<float>(RandomRange(0, 359));
     clone.x = RandomRange(
         boardLeft + padding,
-        boardLeft + kCuttingBoardWidth - padding - kMaterialCloneSize);
+        boardLeft + kCuttingBoardWidth - padding - clone.size);
     clone.y = RandomRange(
         boardTop + padding,
-        boardTop + kCuttingBoardHeight - padding - kMaterialCloneSize);
+        boardTop + kCuttingBoardHeight - padding - clone.size);
+}
+
+void AddClickStars(int designX, int designY) {
+    if (gStarParticles.size() + 2 > kMaximumStarParticles) {
+        gStarParticles.erase(
+            gStarParticles.begin(),
+            gStarParticles.begin() + 2);
+    }
+    for (int index = 0; index < 2; ++index) {
+        const double direction = (index == 0) ? -1.0 : 1.0;
+        gStarParticles.push_back({
+            static_cast<double>(designX),
+            static_cast<double>(designY),
+            direction * RandomRange(45, 75),
+            -static_cast<double>(RandomRange(90, 125)),
+            static_cast<double>(RandomRange(0, 359)),
+            direction * RandomRange(180, 300)
+        });
+    }
+}
+
+void DrawStarParticles(HDC dc, const Layout& layout) {
+    Gdiplus::Graphics graphics(dc);
+    graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+    Gdiplus::SolidBrush brush(Gdiplus::Color(255, 255, 255, 255));
+    constexpr double pi = 3.14159265358979323846;
+    constexpr int pointCount = 10;
+    for (const StarParticle& particle : gStarParticles) {
+        const POINT center = LogicalPoint(layout, particle.x, particle.y);
+        const double outerRadius = kStarParticleSize * layout.scale;
+        const double innerRadius = outerRadius * 0.42;
+        Gdiplus::PointF points[pointCount]{};
+        for (int point = 0; point < pointCount; ++point) {
+            const double radius = (point % 2 == 0)
+                ? outerRadius
+                : innerRadius;
+            const double radians = (
+                particle.angle - 90.0 + point * 36.0) * pi / 180.0;
+            points[point] = Gdiplus::PointF(
+                static_cast<float>(center.x + std::cos(radians) * radius),
+                static_cast<float>(center.y + std::sin(radians) * radius));
+        }
+        graphics.FillPolygon(&brush, points, pointCount);
+    }
+}
+
+void UpdateStarParticles(HWND window, ULONGLONG now) {
+    if (gLastStarParticleUpdateTime == 0) {
+        gLastStarParticleUpdateTime = now;
+    }
+    const double elapsed = (std::min)(
+        0.05,
+        (now - gLastStarParticleUpdateTime) / 1000.0);
+    gLastStarParticleUpdateTime = now;
+
+    RECT client{};
+    GetClientRect(window, &client);
+    const Layout layout = GetLayout(client);
+    for (StarParticle& particle : gStarParticles) {
+        particle.x += particle.velocityX * elapsed;
+        particle.y += particle.velocityY * elapsed;
+        particle.velocityY += kStarParticleGravity * elapsed;
+        particle.angle += particle.angularVelocity * elapsed;
+    }
+    gStarParticles.erase(
+        std::remove_if(
+            gStarParticles.begin(),
+            gStarParticles.end(),
+            [&](const StarParticle& particle) {
+                const POINT center = LogicalPoint(
+                    layout, particle.x, particle.y);
+                const int radius = static_cast<int>(std::ceil(
+                    kStarParticleSize * layout.scale));
+                return center.x + radius < client.left
+                    || center.x - radius > client.right
+                    || center.y + radius < client.top
+                    || center.y - radius > client.bottom;
+            }),
+        gStarParticles.end());
 }
 
 RECT ResetButtonRect(const Layout& layout) {
@@ -1233,56 +1470,6 @@ void DrawInterior(HDC dc, const Layout& layout) {
     FillSolid(dc, LogicalRect(
         layout, kPlayAreaX + 127, kPlayAreaY + 171, 146, 43),
         kMaterialColor);
-}
-
-void DrawMousePosition(HDC dc, const Layout& layout) {
-    if (!gHasMousePosition) {
-        return;
-    }
-
-    const int playX = gMouseDesignPosition.x - kPlayAreaX;
-    const int playY = gMouseDesignPosition.y - kPlayAreaY;
-    wchar_t text[128]{};
-    swprintf_s(
-        text,
-        _countof(text),
-        L"화면 X:%ld Y:%ld  |  플레이 X:%d Y:%d",
-        gMouseDesignPosition.x,
-        gMouseDesignPosition.y,
-        playX,
-        playY);
-
-    const int fontHeight = (std::max)(
-        1, static_cast<int>(std::lround(15.0 * layout.scale)));
-    const HFONT font = CreateFont(
-        -fontHeight,
-        0,
-        0,
-        0,
-        FW_NORMAL,
-        FALSE,
-        FALSE,
-        FALSE,
-        DEFAULT_CHARSET,
-        OUT_DEFAULT_PRECIS,
-        CLIP_DEFAULT_PRECIS,
-        CLEARTYPE_QUALITY,
-        DEFAULT_PITCH | FF_DONTCARE,
-        kDefaultUiFontName);
-    const HGDIOBJ oldFont = SelectObject(dc, font);
-    const int oldBackgroundMode = SetBkMode(dc, TRANSPARENT);
-    const COLORREF oldTextColor = SetTextColor(dc, RGB(0xff, 0xff, 0xff));
-    const POINT textPosition = LogicalPoint(layout, 10, kDesignHeight - 24);
-    TextOut(
-        dc,
-        textPosition.x,
-        textPosition.y,
-        text,
-        static_cast<int>(wcslen(text)));
-    SetTextColor(dc, oldTextColor);
-    SetBkMode(dc, oldBackgroundMode);
-    SelectObject(dc, oldFont);
-    DeleteObject(font);
 }
 
 DialogueTree* CurrentDialogueTree() {
@@ -1362,6 +1549,10 @@ void StartRandomDialogueTree() {
     if (tree != nullptr) {
         StartRandomLine(tree->entryLines);
     }
+    if (!gIsNarrationTyping) {
+        gNpcOrderState = NpcOrderState::AfterOrder;
+        gCookingEntryIndicatorStartTime = GetTickCount64();
+    }
 }
 
 void AdvanceNarration() {
@@ -1374,6 +1565,11 @@ void AdvanceNarration() {
     if (gIsNarrationTyping) {
         gNarrationVisibleLength = gCurrentNarrationText.size();
         gIsNarrationTyping = false;
+        if (gNpcOrderState == NpcOrderState::Ordering
+            && gCurrentDialogueStage == DialogueStage::Entry) {
+            gNpcOrderState = NpcOrderState::AfterOrder;
+            gCookingEntryIndicatorStartTime = GetTickCount64();
+        }
         return;
     }
 
@@ -1765,7 +1961,7 @@ void DrawMoneyInterface(
         const HGDIOBJ oldFont = SelectObject(targetDc, font);
         const int oldBackgroundMode = SetBkMode(targetDc, TRANSPARENT);
         const COLORREF oldTextColor = SetTextColor(
-            targetDc, RGB(0xff, 0xff, 0xff));
+            targetDc, RGB(0x2a, 0x2a, 0x2a));
         DrawText(
             targetDc,
             amount.c_str(),
@@ -1787,13 +1983,10 @@ void DrawStartBusinessButton(HDC dc, const Layout& layout, BYTE opacity) {
         logicalButton.top,
         kStartBusinessButtonWidth,
         kStartBusinessButtonHeight);
-    DrawWithOpacity(dc, button, opacity, [&](HDC targetDc) {
-        FillRoundedRect(
-            targetDc,
-            button,
-            static_cast<int>(std::lround(
-                kStartBusinessButtonRadius * layout.scale)),
-            kStartBusinessButtonColor);
+    const BYTE effectiveOpacity = static_cast<BYTE>(std::lround(
+        opacity * kStartBusinessButtonOpacity));
+    DrawWithOpacity(dc, button, effectiveOpacity, [&](HDC targetDc) {
+        FillSolid(targetDc, button, kStartBusinessButtonColor);
         DrawCenteredText(
             targetDc,
             layout,
@@ -2121,6 +2314,78 @@ bool IsCookingStateActive() {
         && !gIsCookingTransitionRunning;
 }
 
+bool CanEnterCookingMode() {
+    return gScreenState == ScreenState::Game
+        && gNpcOrderState == NpcOrderState::AfterOrder
+        && gCookingState == CookingState::NonCooking
+        && !gIsCookingTransitionRunning;
+}
+
+bool IsMouseOverCookingTable() {
+    if (!gHasMousePosition || !gIsTrackingMouse || !CanEnterCookingMode()) {
+        return false;
+    }
+    const int playX = gMouseDesignPosition.x - kPlayAreaX;
+    const int playY = gMouseDesignPosition.y - kPlayAreaY;
+    return playX >= 0
+        && playX <= kPlayAreaSize
+        && playY >= kTableHoverTop
+        && playY <= kTableHoverBottom;
+}
+
+void DrawCookingEntryIndicator(HDC dc, const Layout& layout) {
+    if (!CanEnterCookingMode() || gCookingEntryIndicatorStartTime == 0) {
+        return;
+    }
+
+    const ULONGLONG now = GetTickCount64();
+    const double elapsed = (
+        now - gCookingEntryIndicatorStartTime) / 1000.0;
+    const double opacity = SmoothStep(
+        elapsed / kCookingEntryIndicatorFadeSeconds);
+    for (int row = 0; row < kCookingEntryIndicatorGradientHeight; ++row) {
+        const double rowOpacity = opacity * (row + 1)
+            / kCookingEntryIndicatorGradientHeight;
+        FillTranslucent(
+            dc,
+            LogicalRect(
+                layout,
+                kPlayAreaX,
+                kPlayAreaY + kPlayAreaSize
+                    - kCookingEntryIndicatorGradientHeight + row,
+                kPlayAreaSize,
+                1),
+            RGB(0x00, 0x00, 0x00),
+            static_cast<BYTE>(std::lround(rowOpacity * 255.0)));
+    }
+
+    const double cycleSeconds = kCookingEntryIndicatorBounceHalfSeconds * 2.0;
+    constexpr double pi = 3.14159265358979323846;
+    const double bounce = kCookingEntryIndicatorBounceHeight * std::sin(
+        std::fmod(elapsed, cycleSeconds) / cycleSeconds * pi);
+    const double centerX = kPlayAreaX + kPlayAreaSize * 0.5;
+    const double tipY = kPlayAreaY + kPlayAreaSize - 5.0 - bounce;
+    const POINT left = LogicalPoint(
+        layout,
+        centerX - kCookingEntryIndicatorTriangleWidth * 0.5,
+        tipY - kCookingEntryIndicatorTriangleHeight);
+    const POINT right = LogicalPoint(
+        layout,
+        centerX + kCookingEntryIndicatorTriangleWidth * 0.5,
+        tipY - kCookingEntryIndicatorTriangleHeight);
+    const POINT tip = LogicalPoint(layout, centerX, tipY);
+    Gdiplus::Point points[] = {
+        Gdiplus::Point(left.x, left.y),
+        Gdiplus::Point(right.x, right.y),
+        Gdiplus::Point(tip.x, tip.y)
+    };
+    Gdiplus::Graphics graphics(dc);
+    graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+    Gdiplus::SolidBrush brush(Gdiplus::Color(
+        static_cast<BYTE>(std::lround(opacity * 255.0)), 0, 0, 0));
+    graphics.FillPolygon(&brush, points, 3);
+}
+
 bool ShouldDrawNpc() {
     return gScreenState == ScreenState::NpcEntering
         || gScreenState == ScreenState::NarrationStarting
@@ -2160,12 +2425,15 @@ void DrawNpc(HDC dc, const Layout& layout) {
     double centerX = kNpcEntranceTargetX + kNpcDisplaySize / 2.0;
     double bottomY = kNpcEntranceStartBottomY;
     double spriteScale = 1.0;
-    double horizontalRotationScale = 1.0;
+    double horizontalRotationScale = gNpcEntersFromLeft ? -1.0 : 1.0;
     if (entranceProgress < kNpcEntranceHorizontalFraction) {
         const double progress = SmoothStep(
             entranceProgress / kNpcEntranceHorizontalFraction);
-        const double leftX = kNpcEntranceStartX
-            + (kNpcEntranceTargetX - kNpcEntranceStartX) * progress;
+        const double startX = gNpcEntersFromLeft
+            ? kNpcEntranceLeftStartX
+            : kNpcEntranceRightStartX;
+        const double leftX = startX
+            + (kNpcEntranceTargetX - startX) * progress;
         centerX = leftX + kNpcDisplaySize / 2.0;
     } else {
         const double progress = SmoothStep(
@@ -2176,8 +2444,10 @@ void DrawNpc(HDC dc, const Layout& layout) {
                 * progress;
         spriteScale = 1.0
             + (kNpcEntranceTargetScale - 1.0) * progress;
-        constexpr double pi = 3.14159265358979323846;
-        horizontalRotationScale = std::cos(pi * progress);
+        if (gNpcEntersFromLeft) {
+            constexpr double pi = 3.14159265358979323846;
+            horizontalRotationScale = -std::cos(pi * progress);
+        }
     }
     bottomY += NpcVerticalMotionOffset();
 
@@ -2207,9 +2477,18 @@ void DrawNpc(HDC dc, const Layout& layout) {
     graphics.SetTransform(&transform);
 
     const int halfSourceSize = kNpcSourceSize / 2;
-    if (gNpcImage != nullptr) {
+    // 배열 순서는 아래 레이어부터 위 레이어까지의 합성 순서다.
+    for (int part = 0; part < kNpcPartCount; ++part) {
+        const int variant = gSelectedNpcPartVariants[part];
+        if (variant < 0) {
+            continue;
+        }
+        Gdiplus::Image* image = gNpcPartImages[part][variant];
+        if (image == nullptr) {
+            continue;
+        }
         graphics.DrawImage(
-            gNpcImage,
+            image,
             Gdiplus::Rect(
                 -halfSourceSize,
                 -kNpcSourceSize,
@@ -2220,27 +2499,6 @@ void DrawNpc(HDC dc, const Layout& layout) {
             kNpcSourceSize,
             kNpcSourceSize,
             Gdiplus::UnitPixel);
-    } else {
-        Gdiplus::SolidBrush bodyBrush(
-            Gdiplus::Color(
-                GetRValue(kNpcPlaceholderBodyColor),
-                GetGValue(kNpcPlaceholderBodyColor),
-                GetBValue(kNpcPlaceholderBodyColor)));
-        Gdiplus::SolidBrush faceBrush(
-            Gdiplus::Color(
-                GetRValue(kNpcPlaceholderFaceColor),
-                GetGValue(kNpcPlaceholderFaceColor),
-                GetBValue(kNpcPlaceholderFaceColor)));
-        Gdiplus::SolidBrush accentBrush(
-            Gdiplus::Color(
-                GetRValue(kNpcPlaceholderAccentColor),
-                GetGValue(kNpcPlaceholderAccentColor),
-                GetBValue(kNpcPlaceholderAccentColor)));
-        graphics.FillRectangle(&bodyBrush, -14, -30, 28, 30);
-        graphics.FillRectangle(&faceBrush, -10, -28, 20, 12);
-        // 비대칭 표식으로 Y축 회전 후 좌우가 뒤집힌 상태를 확인할 수 있다.
-        graphics.FillRectangle(&accentBrush, -9, -25, 4, 4);
-        graphics.FillRectangle(&accentBrush, 4, -13, 6, 10);
     }
 }
 
@@ -2325,11 +2583,8 @@ void DrawGame(HDC dc, const RECT& client) {
         DrawResetButton(dc, layout);
     }
 
-    // NPC 입장 후에는 나레이션 박스와 대사가 함께 페이드인한다.
-    DrawNarrationOverlay(dc, layout);
+    DrawCookingEntryIndicator(dc, layout);
 
-    // 기능 배치를 위한 화면 좌표와 플레이 영역 좌표를 좌측 하단에 표시한다.
-    DrawMousePosition(dc, layout);
 }
 
 void DrawApplication(HDC dc, const RECT& client) {
@@ -2342,6 +2597,8 @@ void DrawApplication(HDC dc, const RECT& client) {
     DrawGame(dc, client);
     const Layout layout = GetLayout(client);
     DrawPreparationSequenceUi(dc, layout);
+    // 코인 UI를 먼저 그리고 나레이션 박스가 그 위를 덮도록 한다.
+    DrawNarrationOverlay(dc, layout);
     if (gScreenState == ScreenState::PreparationFadingIn) {
         const double elapsed = (
             GetTickCount64() - gScreenTransitionStartTime) / 1000.0;
@@ -2354,6 +2611,9 @@ void DrawApplication(HDC dc, const RECT& client) {
                 static_cast<BYTE>(std::lround((1.0 - opacity) * 255.0)));
         }
     }
+
+    // 별 파티클은 플레이 영역의 클리핑이 끝난 뒤 그려 검은 여백에서도 보이게 한다.
+    DrawStarParticles(dc, layout);
 }
 
 void PaintWindow(HWND window) {
@@ -2422,17 +2682,7 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
                 gMouseDesignPosition.y);
             gIsTableHovered = false;
         } else if (gScreenState == ScreenState::Game) {
-            const int playX = gMouseDesignPosition.x - kPlayAreaX;
-            const int playY = gMouseDesignPosition.y - kPlayAreaY;
-            const bool isInsidePlayArea = playX >= 0
-                && playX <= kPlayAreaSize
-                && playY >= 0
-                && playY <= kPlayAreaSize;
-            gIsTableHovered = !gIsCookingTransitionRunning
-                && gCookingState == CookingState::NonCooking
-                && isInsidePlayArea
-                && playY >= kTableHoverTop
-                && playY <= kTableHoverBottom;
+            gIsTableHovered = IsMouseOverCookingTable();
             gHoveredTitleButton = -1;
         } else {
             gHoveredTitleButton = -1;
@@ -2447,7 +2697,6 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
             TrackMouseEvent(&tracking);
             gIsTrackingMouse = true;
         }
-        InvalidateRect(window, nullptr, FALSE);
         return 0;
     }
     case WM_LBUTTONDOWN: {
@@ -2532,8 +2781,7 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
             gMaterialCloneCount = 0;
             StartCookingTransition(CookingState::NonCooking);
             InvalidateRect(window, nullptr, FALSE);
-        } else if (!gIsCookingTransitionRunning
-            && gCookingState == CookingState::NonCooking
+        } else if (CanEnterCookingMode()
             && gIsTableHovered) {
             const bool interruptedAdditionalDialogue =
                 gCurrentDialogueStage == DialogueStage::Additional
@@ -2544,6 +2792,7 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
             && gCookingState == CookingState::Cooking
             && clickedSocket >= 0) {
             AddMaterialClone(clickedSocket);
+            AddClickStars(designX, designY);
             InvalidateRect(window, nullptr, FALSE);
         } else if (!gIsCookingTransitionRunning
             && gCookingState == CookingState::Cooking
@@ -2564,6 +2813,13 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
         if (wParam == kAnimationTimerId) {
             bool visualChanged = false;
             const ULONGLONG now = GetTickCount64();
+
+            if (!gStarParticles.empty()) {
+                UpdateStarParticles(window, now);
+                visualChanged = true;
+            } else {
+                gLastStarParticleUpdateTime = now;
+            }
 
             if (gScreenState == ScreenState::Title
                 || gScreenState == ScreenState::TitleFadingOut) {
@@ -2616,6 +2872,7 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
                 if (elapsed >= kCountdownStepSeconds * kCountdownStepCount) {
                     gScreenState = ScreenState::NpcEntering;
                     gPreparationSequenceStartTime = now;
+                    RandomizeNpcAppearance();
                 }
             } else if (gScreenState == ScreenState::NpcEntering) {
                 const double elapsed = (
@@ -2640,6 +2897,9 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
                 if (elapsed >= kNarrationAppearanceDelaySeconds
                         + kNarrationFadeInSeconds) {
                     gScreenState = ScreenState::Game;
+                    if (gNpcOrderState == NpcOrderState::AfterOrder) {
+                        gCookingEntryIndicatorStartTime = now;
+                    }
                 }
             }
 
@@ -2683,11 +2943,21 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
                     if (gNarrationVisibleLength
                         >= gCurrentNarrationText.size()) {
                         gIsNarrationTyping = false;
+                        if (gNpcOrderState == NpcOrderState::Ordering
+                            && gCurrentDialogueStage
+                                == DialogueStage::Entry) {
+                            gNpcOrderState = NpcOrderState::AfterOrder;
+                            gCookingEntryIndicatorStartTime = now;
+                        }
                     }
                 }
             }
 
             if (gScreenState == ScreenState::Game) {
+                if (CanEnterCookingMode()) {
+                    visualChanged = true;
+                }
+                gIsTableHovered = IsMouseOverCookingTable();
                 const double previousLift = gTableLift;
                 if (gIsCookingTransitionRunning) {
                     const double elapsedSeconds = (
@@ -2801,7 +3071,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
     }
     LoadMaterialImages();
     LoadMoneyImages();
-    LoadNpcImage();
+    LoadNpcImages();
 
     WNDCLASSEX windowClass{};
     windowClass.cbSize = sizeof(windowClass);
@@ -2813,7 +3083,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
     windowClass.lpszClassName = kWindowClass;
 
     if (!RegisterClassEx(&windowClass)) {
-        UnloadNpcImage();
+        UnloadNpcImages();
         UnloadMoneyImages();
         UnloadMaterialImages();
         Gdiplus::GdiplusShutdown(gGdiplusToken);
@@ -2832,7 +3102,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
         nullptr, nullptr, instance, nullptr);
 
     if (!window) {
-        UnloadNpcImage();
+        UnloadNpcImages();
         UnloadMoneyImages();
         UnloadMaterialImages();
         Gdiplus::GdiplusShutdown(gGdiplusToken);
@@ -2854,7 +3124,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
         DispatchMessage(&message);
     }
 
-    UnloadNpcImage();
+    UnloadNpcImages();
     UnloadMoneyImages();
     UnloadMaterialImages();
     Gdiplus::GdiplusShutdown(gGdiplusToken);
