@@ -15,8 +15,8 @@ namespace {
 
 constexpr wchar_t kWindowClass[] = L"OnePointFourFourMBGameWindow";
 constexpr wchar_t kWindowTitle[] = L"1.44MB Game";
-constexpr wchar_t kDefaultUiFontName[] = L"DOSMyungjo";
-constexpr wchar_t kTitleFontName[] = L"DOSMyungjo";
+constexpr wchar_t kDefaultUiFontName[] = L"PFStardust 1.4 Medium";
+constexpr wchar_t kTitleFontName[] = L"PFStardust 1.4 Medium";
 constexpr wchar_t kNarrationFontName[] = L"DOSPilgi";
 
 constexpr int kDesignWidth = 800;
