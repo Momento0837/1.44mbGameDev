@@ -50,7 +50,8 @@ constexpr int kTableHoverTop = 275;
 constexpr int kTableHoverBottom = 400;
 constexpr double kTableLiftDistance = 10.0;
 constexpr double kTableEasingSpeed = 0.18;
-constexpr int kCookingEntryIndicatorGradientHeight = 10;
+constexpr int kCookingEntryIndicatorGradientHeight = 15;
+constexpr double kCookingEntryIndicatorGradientMaxOpacity = 0.3;
 constexpr int kCookingEntryIndicatorTriangleWidth = 10;
 constexpr int kCookingEntryIndicatorTriangleHeight = 6;
 constexpr double kCookingEntryIndicatorFadeSeconds = 0.5;
@@ -87,6 +88,7 @@ constexpr int kNarrationBoxY = 10;
 constexpr int kNarrationBoxWidth = kDesignWidth - 20;
 constexpr int kNarrationBoxHeight = 160;
 constexpr ULONGLONG kNarrationCharacterIntervalMilliseconds = 80;
+constexpr unsigned int kHoverNarrationChancePercent = 30;
 constexpr UINT_PTR kAnimationTimerId = 1;
 constexpr UINT kAnimationFrameMilliseconds = 16;
 
@@ -110,6 +112,18 @@ constexpr int kMoneyCoinDisplaySize = 32;
 constexpr int kMoneyTextGap = 8;
 constexpr int kMoneyTextWidth = 120;
 constexpr int kMoneyFontHeight = 24;
+struct CustomerCategoryReward {
+    const wchar_t* id;
+    int baseReward;
+};
+constexpr CustomerCategoryReward kCustomerCategoryRewards[] = {
+    {L"normal", 200},
+    {L"sequence_obsessed", 300},
+    {L"order_change", 400},
+    {L"large_order", 500},
+    {L"tmi", 600},
+    {L"silent", 300}
+};
 constexpr int kStartBusinessButtonWidth = 112;
 constexpr int kStartBusinessButtonHeight = kMoneyCoinDisplaySize;
 constexpr double kStartBusinessButtonOpacity = 0.70;
@@ -133,6 +147,7 @@ constexpr double kNpcDialogueBounceSeconds = 0.3;
 constexpr double kNpcDialogueBounceHeight = 30.0;
 constexpr ULONGLONG kNpcIdleStepMilliseconds = 500;
 constexpr double kNpcIdleRise = 10.0;
+constexpr double kNpcAfterCookingDepartureDelaySeconds = 1.0;
 constexpr double kNarrationAppearanceDelaySeconds = 0.5;
 constexpr double kNarrationFadeInSeconds = 0.5;
 constexpr wchar_t kOwnedMoneyCoinImagePath[] =
@@ -225,7 +240,8 @@ enum class ScreenState {
     Countdown,
     NpcEntering,
     NarrationStarting,
-    Game
+    Game,
+    NpcExiting
 };
 ScreenState gScreenState = ScreenState::Title;
 ULONGLONG gTitleStartTime = 0;
@@ -292,6 +308,7 @@ bool gIsNarrationActive = false;
 bool gIsNarrationTyping = false;
 ULONGLONG gNarrationStartTime = 0;
 size_t gNarrationVisibleLength = 0;
+ULONGLONG gAfterCookingNarrationCompletedTime = 0;
 struct DialogueTree {
     std::wstring menuId;
     std::wstring id;
@@ -1507,10 +1524,12 @@ void RollHoverDialogueAvailability(DialogueTree& tree) {
         hover.nearbyEnabled.clear();
         hover.exactEnabled.clear();
         for (size_t index = 0; index < hover.nearbyLines.size(); ++index) {
-            hover.nearbyEnabled.push_back(NextRandom() % 100 < 70);
+            hover.nearbyEnabled.push_back(
+                NextRandom() % 100 < kHoverNarrationChancePercent);
         }
         for (size_t index = 0; index < hover.exactLines.size(); ++index) {
-            hover.exactEnabled.push_back(NextRandom() % 100 < 70);
+            hover.exactEnabled.push_back(
+                NextRandom() % 100 < kHoverNarrationChancePercent);
         }
     }
 }
@@ -1545,6 +1564,7 @@ void StartRandomDialogueTree() {
     gCurrentDialogueStage = DialogueStage::Entry;
     gLastNarrationHoverSocket = -1;
     gHasCookingResult = false;
+    gAfterCookingNarrationCompletedTime = 0;
     DialogueTree* tree = CurrentDialogueTree();
     if (tree != nullptr) {
         StartRandomLine(tree->entryLines);
@@ -1552,6 +1572,20 @@ void StartRandomDialogueTree() {
     if (!gIsNarrationTyping) {
         gNpcOrderState = NpcOrderState::AfterOrder;
         gCookingEntryIndicatorStartTime = GetTickCount64();
+    }
+}
+
+void CompleteNarrationTyping(ULONGLONG now) {
+    gNarrationVisibleLength = gCurrentNarrationText.size();
+    gIsNarrationTyping = false;
+    if (gNpcOrderState == NpcOrderState::Ordering
+        && gCurrentDialogueStage == DialogueStage::Entry) {
+        gNpcOrderState = NpcOrderState::AfterOrder;
+        gCookingEntryIndicatorStartTime = now;
+    }
+    if (gCurrentDialogueStage == DialogueStage::AfterCooking
+        && gAfterCookingNarrationCompletedTime == 0) {
+        gAfterCookingNarrationCompletedTime = now;
     }
 }
 
@@ -1563,13 +1597,7 @@ void AdvanceNarration() {
         return;
     }
     if (gIsNarrationTyping) {
-        gNarrationVisibleLength = gCurrentNarrationText.size();
-        gIsNarrationTyping = false;
-        if (gNpcOrderState == NpcOrderState::Ordering
-            && gCurrentDialogueStage == DialogueStage::Entry) {
-            gNpcOrderState = NpcOrderState::AfterOrder;
-            gCookingEntryIndicatorStartTime = GetTickCount64();
-        }
+        CompleteNarrationTyping(GetTickCount64());
         return;
     }
 
@@ -1606,7 +1634,8 @@ void TryStartHoverNarration(int hoveredSocket) {
         return;
     }
 
-    std::vector<const std::wstring*> candidates;
+    std::vector<const std::wstring*> exactCandidates;
+    std::vector<const std::wstring*> nearbyCandidates;
     for (const DialogueTree::HoverDialogue& hover : tree->hoverDialogues) {
         const bool exact = hoveredSocket == hover.materialIndex;
         const bool nearby = !exact
@@ -1624,50 +1653,181 @@ void TryStartHoverNarration(int hoveredSocket) {
              index < lines.size() && index < enabled.size();
              ++index) {
             if (enabled[index] && !lines[index].empty()) {
-                candidates.push_back(&lines[index]);
+                (exact ? exactCandidates : nearbyCandidates).push_back(
+                    &lines[index]);
             }
         }
     }
+    const std::vector<const std::wstring*>& candidates =
+        exactCandidates.empty() ? nearbyCandidates : exactCandidates;
     if (!candidates.empty()) {
         StartNarrationText(
             *candidates[NextRandom() % candidates.size()]);
     }
 }
 
-bool EvaluateCurrentRecipe() {
+struct CookingEvaluation {
+    bool exactRecipe = false;
+    int materialCountDifference = 0;
+    int materialTypeDifference = 0;
+    long long reward = 0;
+};
+
+constexpr int QuantityMultiplierTenths(int difference) {
+    return difference == 0 ? 14 : (difference <= 1 ? 10 : 5);
+}
+
+constexpr int TypeMultiplierTenths(int difference) {
+    return difference == 0 ? 15 : (difference <= 1 ? 11 : 5);
+}
+
+constexpr long long CalculateCookingReward(
+    int baseReward,
+    int materialCountDifference,
+    int materialTypeDifference) {
+    return static_cast<long long>(baseReward)
+        * QuantityMultiplierTenths(materialCountDifference)
+        * TypeMultiplierTenths(materialTypeDifference)
+        / 100;
+}
+
+static_assert(CalculateCookingReward(200, 0, 0) == 420);
+static_assert(CalculateCookingReward(200, 1, 1) == 220);
+static_assert(CalculateCookingReward(200, 2, 2) == 50);
+
+int CurrentOrderBaseReward() {
+    if (gCurrentDialogueCategory < 0
+        || gCurrentDialogueCategory
+            >= static_cast<int>(gDialogueCategories.size())) {
+        return 0;
+    }
+    const std::wstring& categoryId =
+        gDialogueCategories[gCurrentDialogueCategory].id;
+    for (const CustomerCategoryReward& categoryReward
+         : kCustomerCategoryRewards) {
+        if (categoryId == categoryReward.id) {
+            return categoryReward.baseReward;
+        }
+    }
+    return 0;
+}
+
+CookingEvaluation EvaluateCurrentRecipe() {
+    CookingEvaluation evaluation;
     DialogueTree* tree = CurrentDialogueTree();
     if (tree == nullptr || tree->recipe.empty()) {
-        return false;
+        return evaluation;
     }
     int actualCounts[kMaterialBinCount]{};
     int expectedCounts[kMaterialBinCount]{};
+    int actualTotal = 0;
+    int expectedTotal = 0;
     for (int index = 0; index < gMaterialCloneCount; ++index) {
         const int materialIndex = gMaterialClones[index].materialIndex;
         if (materialIndex >= 0 && materialIndex < kMaterialBinCount) {
             ++actualCounts[materialIndex];
+            ++actualTotal;
         }
     }
     for (const DialogueTree::RecipeIngredient& ingredient : tree->recipe) {
         expectedCounts[ingredient.materialIndex] += ingredient.quantity;
+        expectedTotal += ingredient.quantity;
     }
+    evaluation.exactRecipe = true;
     for (int index = 0; index < kMaterialBinCount; ++index) {
         if (actualCounts[index] != expectedCounts[index]) {
-            return false;
+            evaluation.exactRecipe = false;
+        }
+        if ((actualCounts[index] > 0) != (expectedCounts[index] > 0)) {
+            ++evaluation.materialTypeDifference;
         }
     }
-    return true;
+    evaluation.materialCountDifference = std::abs(
+        actualTotal - expectedTotal);
+    evaluation.reward = CalculateCookingReward(
+        CurrentOrderBaseReward(),
+        evaluation.materialCountDifference,
+        evaluation.materialTypeDifference);
+    return evaluation;
 }
 
 void FinishCookingOrder() {
     DialogueTree* tree = CurrentDialogueTree();
-    if (tree == nullptr) {
+    if (tree == nullptr || gHasCookingResult) {
         return;
     }
-    gLastCookingSucceeded = EvaluateCurrentRecipe();
+    const CookingEvaluation evaluation = EvaluateCurrentRecipe();
+    gLastCookingSucceeded = evaluation.exactRecipe;
+    gEarnedMoney += evaluation.reward;
     gHasCookingResult = true;
     gCurrentDialogueStage = DialogueStage::AfterCooking;
     gNpcOrderState = NpcOrderState::AfterOrder;
     StartRandomLine(tree->afterCookingLines);
+    gAfterCookingNarrationCompletedTime = gIsNarrationTyping
+        ? 0
+        : GetTickCount64();
+}
+
+bool CanStartNpcExit(ULONGLONG now) {
+    return gScreenState == ScreenState::Game
+        && gHasCookingResult
+        && gCurrentDialogueStage == DialogueStage::AfterCooking
+        && !gIsNarrationTyping
+        && gAfterCookingNarrationCompletedTime != 0
+        && !gIsCookingTransitionRunning
+        && gCookingState == CookingState::NonCooking
+        && (now - gAfterCookingNarrationCompletedTime) / 1000.0
+            >= kNpcAfterCookingDepartureDelaySeconds;
+}
+
+void StartNpcExit(ULONGLONG now) {
+    gScreenState = ScreenState::NpcExiting;
+    gPreparationSequenceStartTime = now;
+    gNpcIdleStartTime = 0;
+    gIsNarrationBoxInteractive = false;
+    gCookingEntryIndicatorStartTime = 0;
+    gIsTableHovered = false;
+    gHoveredPngSocket = -1;
+}
+
+void StartNextNpcEntrance(ULONGLONG now) {
+    gScreenState = ScreenState::NpcEntering;
+    gPreparationSequenceStartTime = now;
+    RandomizeNpcAppearance();
+
+    gNpcOrderState = NpcOrderState::BeforeOrder;
+    gNpcIdleStartTime = 0;
+    gNpcIdleStep = 0;
+    gCookingEntryIndicatorStartTime = 0;
+    gCookingState = CookingState::NonCooking;
+    gCookingTransitionTargetState = CookingState::NonCooking;
+    gIsCookingTransitionRunning = false;
+    gTableLift = 0.0;
+    gResetButtonOpacity = 0.0;
+    gIsTableHovered = false;
+    gHoveredPngSocket = -1;
+    for (double& scale : gPngSocketScales) {
+        scale = 1.0;
+    }
+    gMaterialCloneCount = 0;
+    gStarParticles.clear();
+    gLastStarParticleUpdateTime = now;
+
+    gCurrentNarrationName.clear();
+    gCurrentNarrationText.clear();
+    gCurrentDialogueCategory = -1;
+    gCurrentDialogueTree = -1;
+    gCurrentDialogueStage = DialogueStage::Entry;
+    gLastNarrationHoverSocket = -1;
+    gIsNarrationActive = false;
+    gIsNarrationTyping = false;
+    gNarrationStartTime = 0;
+    gNarrationVisibleLength = 0;
+    gNarrationFadeStartTime = 0;
+    gIsNarrationBoxInteractive = false;
+    gAfterCookingNarrationCompletedTime = 0;
+    gHasCookingResult = false;
+    gLastCookingSucceeded = false;
 }
 
 RECT NarrationBoxRect(const Layout& layout) {
@@ -2063,7 +2223,8 @@ void DrawPreparationSequenceUi(HDC dc, const Layout& layout) {
             layout,
             static_cast<BYTE>(std::lround(buttonOpacity * 255.0)));
         DrawCountdown(dc, layout);
-    } else if (gScreenState == ScreenState::NpcEntering) {
+    } else if (gScreenState == ScreenState::NpcEntering
+        || gScreenState == ScreenState::NpcExiting) {
         DrawMoneyInterface(dc, layout, false, 255);
     } else if (gScreenState == ScreenState::NarrationStarting) {
         DrawMoneyInterface(dc, layout, false, 255);
@@ -2317,6 +2478,7 @@ bool IsCookingStateActive() {
 bool CanEnterCookingMode() {
     return gScreenState == ScreenState::Game
         && gNpcOrderState == NpcOrderState::AfterOrder
+        && !gHasCookingResult
         && gCookingState == CookingState::NonCooking
         && !gIsCookingTransitionRunning;
 }
@@ -2344,7 +2506,8 @@ void DrawCookingEntryIndicator(HDC dc, const Layout& layout) {
     const double opacity = SmoothStep(
         elapsed / kCookingEntryIndicatorFadeSeconds);
     for (int row = 0; row < kCookingEntryIndicatorGradientHeight; ++row) {
-        const double rowOpacity = opacity * (row + 1)
+        const double rowOpacity = opacity
+            * kCookingEntryIndicatorGradientMaxOpacity * (row + 1)
             / kCookingEntryIndicatorGradientHeight;
         FillTranslucent(
             dc,
@@ -2389,11 +2552,13 @@ void DrawCookingEntryIndicator(HDC dc, const Layout& layout) {
 bool ShouldDrawNpc() {
     return gScreenState == ScreenState::NpcEntering
         || gScreenState == ScreenState::NarrationStarting
-        || gScreenState == ScreenState::Game;
+        || gScreenState == ScreenState::Game
+        || gScreenState == ScreenState::NpcExiting;
 }
 
 double NpcVerticalMotionOffset() {
-    if (gScreenState == ScreenState::NpcEntering) {
+    if (gScreenState == ScreenState::NpcEntering
+        || gScreenState == ScreenState::NpcExiting) {
         return 0.0;
     }
     if (gIsNarrationActive && gIsNarrationTyping) {
@@ -2414,12 +2579,16 @@ void DrawNpc(HDC dc, const Layout& layout) {
     }
 
     double entranceProgress = 1.0;
-    if (gScreenState == ScreenState::NpcEntering) {
+    if (gScreenState == ScreenState::NpcEntering
+        || gScreenState == ScreenState::NpcExiting) {
         const double elapsed = (
             GetTickCount64() - gPreparationSequenceStartTime) / 1000.0;
-        entranceProgress = (std::max)(
+        const double movementProgress = (std::max)(
             0.0,
             (std::min)(1.0, elapsed / kNpcEntranceSeconds));
+        entranceProgress = gScreenState == ScreenState::NpcExiting
+            ? 1.0 - movementProgress
+            : movementProgress;
     }
 
     double centerX = kNpcEntranceTargetX + kNpcDisplaySize / 2.0;
@@ -2529,7 +2698,8 @@ void DrawGame(HDC dc, const RECT& client) {
     RestoreDC(dc, npcDc);
 
     // 180도 전환이 끝날 때까지 NPC 위에 벽을 다시 그려 뒤쪽에 숨긴다.
-    if (gScreenState == ScreenState::NpcEntering) {
+    if (gScreenState == ScreenState::NpcEntering
+        || gScreenState == ScreenState::NpcExiting) {
         DrawGreenWalls(dc, layout);
     }
 
@@ -2901,10 +3071,18 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
                         gCookingEntryIndicatorStartTime = now;
                     }
                 }
+            } else if (gScreenState == ScreenState::NpcExiting) {
+                const double elapsed = (
+                    now - gPreparationSequenceStartTime) / 1000.0;
+                visualChanged = true;
+                if (elapsed >= kNpcEntranceSeconds) {
+                    StartNextNpcEntrance(now);
+                }
             }
 
             if (ShouldDrawNpc()
-                && gScreenState != ScreenState::NpcEntering) {
+                && gScreenState != ScreenState::NpcEntering
+                && gScreenState != ScreenState::NpcExiting) {
                 if (gIsNarrationActive && gIsNarrationTyping) {
                     visualChanged = true;
                 } else if (gNpcIdleStartTime != 0) {
@@ -2942,13 +3120,7 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
                     }
                     if (gNarrationVisibleLength
                         >= gCurrentNarrationText.size()) {
-                        gIsNarrationTyping = false;
-                        if (gNpcOrderState == NpcOrderState::Ordering
-                            && gCurrentDialogueStage
-                                == DialogueStage::Entry) {
-                            gNpcOrderState = NpcOrderState::AfterOrder;
-                            gCookingEntryIndicatorStartTime = now;
-                        }
+                        CompleteNarrationTyping(now);
                     }
                 }
             }
@@ -3022,6 +3194,11 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
                     gResetButtonOpacity = targetButtonOpacity;
                 }
                 if (gResetButtonOpacity != previousButtonOpacity) {
+                    visualChanged = true;
+                }
+
+                if (CanStartNpcExit(now)) {
+                    StartNpcExit(now);
                     visualChanged = true;
                 }
             }
