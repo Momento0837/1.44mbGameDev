@@ -20,14 +20,26 @@
             "I_entry": ["안녕하세요. 기본 샐러드랩 하나 주세요.", "기본 랩 하나 주세요."],
             "II_additional": ["솔직히 기본이 가장 맛있는 거 아니겠어요?", "여기가 제일 맛있어요."],
             "III_hoverHints": [
-              {"materialId": "lettuce", "nearby": ["양상추 역시 맛있죠?"], "exact": [""]}
+              {
+                "materialId": "lettuce",
+                "nearby": [ "이상하게 양상추랑 양배추랑 헷갈려요.", "야채는 매일 아침마다 손질하시는 거에요?", "신선해보이네요!" ],
+                "exact": ["맛있겠다. 얼른 만들어주세요!"]},
+              {
+                "materialId": "raw_carrot",
+                "nearby": [ "당근이 눈에 좋다면서요?", "당근 싫어하는 사람 이해가 잘 안돼요." ], 
+                "exact": ["맛있겠어요."]},
+              {
+                "materialId": "tortilla",
+                "nearby": [ "또띠아 참 맛있지 않아요? 정신 없이 먹다가 살이 5kg나 쪘어요.", "베이직하니 가볍게 먹기 참 좋죠." ],
+                "exact": [ "랩을 만든 사람은 천재라고 생각해요." ]
+              }
             ],
-            "IV_afterCooking": ["", ""]
+            "IV_afterCooking": ["감사합니다. 맛있게 잘 먹을게요!", "잘 먹겠습니다. 수고하세요."]
           }
         },
         {
           "id": "normal_menu_02",
-          "name": "",
+          "name": "eggmayo_wrap",
           "recipe": {
             "ingredients": [
               {"materialId": "tortilla", "quantity": 1},
@@ -37,10 +49,17 @@
           },
           "dialogueTree": {
             "id": "normal_dialogue_02",
-            "I_entry": ["", ""],
-            "II_additional": ["", ""],
+            "I_entry": ["안녕하세요. 에그마요 토마토 랩 하나 주세요.", "에그마요 토마토 하나요."],
+            "II_additional": ["저는 이상하게 양상추가 싫더라구요.", "에그마요는 언제나 옳은 선택이죠!"],
             "III_hoverHints": [
-              {"materialId": "tomato", "nearby": ["", ""], "exact": []}
+              {
+                "materialId": "tomato",
+                "nearby": ["토마토는 누가 이름을 지었을까요? 어감이 귀엽지 않아요?", "동그랗고 신선하네요."],
+                "exact": ["토마토는 커도 작아도 맛있죠."]},
+              {
+                "materialId": "tortilla",
+                "nearby": [ "또띠아 참 맛있지 않아요? 정신 없이 먹다가 살이 5kg나 쪘어요.", "베이직하니 가볍게 먹기 참 좋죠." ],
+                "exact": [ "랩을 만든 사람은 천재라고 생각해요." ]}
             ],
             "IV_afterCooking": ["", ""]
           }
