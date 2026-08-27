@@ -7,7 +7,7 @@
       "menus": [
         {
           "id": "normal_menu_01",
-          "name": "",
+          "name": "default_wrap",
           "recipe": {
             "ingredients": [
               {"materialId": "tortilla", "quantity": 1},
@@ -17,10 +17,10 @@
           },
           "dialogueTree": {
             "id": "normal_dialogue_01",
-            "I_entry": ["", ""],
-            "II_additional": ["", ""],
+            "I_entry": ["안녕하세요. 기본 샐러드랩 하나 주세요.", "기본 랩 하나 주세요."],
+            "II_additional": ["솔직히 기본이 가장 맛있는 거 아니겠어요?", "여기가 제일 맛있어요."],
             "III_hoverHints": [
-              {"materialId": "lettuce", "nearby": ["", ""], "exact": []}
+              {"materialId": "lettuce", "nearby": ["양상추 역시 맛있죠?"], "exact": [""]}
             ],
             "IV_afterCooking": ["", ""]
           }
