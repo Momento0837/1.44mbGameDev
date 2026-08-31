@@ -383,6 +383,7 @@ std::wstring gCurrentNarrationText;
 int gCurrentDialogueCategory = -1;
 int gCurrentDialogueTree = -1;
 DialogueStage gCurrentDialogueStage = DialogueStage::Entry;
+size_t gCurrentDialogueLineIndex = 0;
 int gLastNarrationHoverSocket = -1;
 bool gHasCookingResult = false;
 bool gLastCookingSucceeded = false;
@@ -1755,6 +1756,16 @@ void RollHoverDialogueAvailability(DialogueTree& tree) {
     }
 }
 
+void StartDialogueLine(
+    const std::vector<std::wstring>& lines,
+    size_t lineIndex) {
+    if (lineIndex >= lines.size()) {
+        StartNarrationText(L"");
+        return;
+    }
+    StartNarrationText(lines[lineIndex]);
+}
+
 void EnterHoverDialogueStage(bool interruptedAdditionalDialogue) {
     DialogueTree* tree = CurrentDialogueTree();
     if (tree == nullptr || gCurrentDialogueStage == DialogueStage::Hover) {
@@ -1783,6 +1794,7 @@ void StartRandomDialogueTree() {
     gCurrentDialogueTree = static_cast<int>(
         NextRandom() % category.menus.size());
     gCurrentDialogueStage = DialogueStage::Entry;
+    gCurrentDialogueLineIndex = 0;
     gLastNarrationHoverSocket = -1;
     gHasCookingResult = false;
     gWasEmptySubmission = false;
@@ -1824,10 +1836,17 @@ void AdvanceNarration() {
     }
 
     DialogueTree* tree = CurrentDialogueTree();
-    if (tree != nullptr
-        && gCurrentDialogueStage == DialogueStage::Entry) {
+    if (tree == nullptr) {
+        return;
+    }
+    if (gCurrentDialogueStage == DialogueStage::Entry) {
         gCurrentDialogueStage = DialogueStage::Additional;
-        StartRandomLine(tree->additionalLines);
+        gCurrentDialogueLineIndex = 0;
+        StartDialogueLine(tree->additionalLines, gCurrentDialogueLineIndex);
+    } else if (gCurrentDialogueStage == DialogueStage::Additional
+        && gCurrentDialogueLineIndex + 1 < tree->additionalLines.size()) {
+        ++gCurrentDialogueLineIndex;
+        StartDialogueLine(tree->additionalLines, gCurrentDialogueLineIndex);
     }
 }
 
@@ -2121,6 +2140,7 @@ void StartNextNpcEntrance(ULONGLONG now) {
     gCurrentDialogueCategory = -1;
     gCurrentDialogueTree = -1;
     gCurrentDialogueStage = DialogueStage::Entry;
+    gCurrentDialogueLineIndex = 0;
     gLastNarrationHoverSocket = -1;
     gIsNarrationActive = false;
     gIsNarrationTyping = false;
