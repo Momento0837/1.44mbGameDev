@@ -35,9 +35,9 @@
               }
             ],
             "IV_afterCooking": ["감사합니다. 맛있게 잘 먹을게요!", "잘 먹겠습니다. 수고하세요."],
-            "IV_afterCooking70Percent": [""],
-            "IV_afterCooking50Percent": [""],
-            "V_emptySubmission": [""]
+            "IV_afterCooking70Percent": ["좀 이상한 것 같긴 한데... 일단 잘 먹겠습니다!", "뭔가 이상한 것 같은데? 잘 먹을게요."],
+            "IV_afterCooking50Percent": [ "시간이 없어서 뭐라 하지는 못하겠고요... 그냥 먹을게요.", "이렇게 주시면 어떡해요? 다음에는 제대로 주세요..." ],
+            "V_emptySubmission": ["이렇게 장사하지 마세요.", "이렇게 하면 돈이 되세요?"]
           }
         },
         {
@@ -71,10 +71,10 @@
                 "exact": [ "부드러우면서 꾸덕한게 최고에요." ]
               }
             ],
-            "IV_afterCooking": ["", ""],
-            "IV_afterCooking70Percent": [""],
-            "IV_afterCooking50Percent": [""],
-            "V_emptySubmission": [""]
+            "IV_afterCooking": ["오늘도 역시 황금비율이네요. 맛있어요.", "토마토랑 계란은 역시 최고!"],
+            "IV_afterCooking70Percent": ["이상하네. 맛이 원래 이랬나?", "일단 잘 먹을게요. 맛있긴 하네."],
+            "IV_afterCooking50Percent": ["맛이 왜이래요 이거?", "토마토랑 계란이 맛없기 쉽지 않은데..."],
+            "V_emptySubmission": [ "이렇게 장사하지 마세요.", "이렇게 하면 돈이 되세요?" ]
           }
         },
         {
@@ -108,10 +108,10 @@
                 "exact": ["왜 단무지일까요? 새콤달콤하잖아요. 어쨌든 달아서 그런 건가?"]
               }
             ],
-            "IV_afterCooking": ["", ""],
-            "IV_afterCooking70Percent": [""],
-            "IV_afterCooking50Percent": [""],
-            "V_emptySubmission": [""]
+            "IV_afterCooking": ["김밥은 간단하게 먹기 참 좋죠. 잘 먹을게요!", "전 세상에서 우엉이 제일 좋아요."],
+            "IV_afterCooking70Percent": ["기본 김밥 맞죠? 비율이 이상한데.", "이상해 보이긴 하지만 맛있겠죠 뭐. 설마 맛없겠어요?"],
+            "IV_afterCooking50Percent": ["김밥 맞죠? 평소에 먹던 거랑 많이 다르게 생겼네요.", "이게 뭔가요?"],
+            "V_emptySubmission": [ "이렇게 장사하지 마세요.", "이렇게 하면 돈이 되세요?" ]
           }
         }
       ]
@@ -122,25 +122,30 @@
       "menus": [
         {
           "id": "sequence_obsessed_menu_01",
-          "name": "",
+          "name": "Various_salad_wrap",
           "recipe": {
             "ingredients": [
               {"materialId": "tortilla", "quantity": 1},
-              {"materialId": "lettuce", "quantity": 2},
-              {"materialId": "raw_carrot", "quantity": 1}
+              {"materialId": "lettuce", "quantity": 1},
+              {"materialId": "raw_carrot", "quantity": 1},
+              {"materialId": "raw_bell_pepper", "quantity": 1}
             ]
           },
           "dialogueTree": {
             "id": "sequence_obsessed_dialogue_01",
-            "I_entry": ["", ""],
-            "II_additional": ["", "", "", "", ""],
+            "I_entry": [ "다양한 샐러드랩 하나 주세요.", "다양한 랩 하나 줘요." ],
+            "II_additional": [ "또띠아 위에 우선 양상추를 올려주시고요.", "", "", "", "" ],
             "III_hoverHints": [
-              {"materialId": "lettuce", "nearby": ["", "", "", "", ""], "exact": []}
+              {
+                "materialId": "lettuce",
+                "nearby": [ "", "", "", "", "" ],
+                "exact": []
+              }
             ],
-            "IV_afterCooking": ["", ""],
-            "IV_afterCooking70Percent": [""],
-            "IV_afterCooking50Percent": [""],
-            "V_emptySubmission": [""]
+            "IV_afterCooking": [ "", "" ],
+            "IV_afterCooking70Percent": [ "" ],
+            "IV_afterCooking50Percent": [ "" ],
+            "V_emptySubmission": [ "" ]
           }
         },
         {
