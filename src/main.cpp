@@ -1,6 +1,7 @@
 //#define NOMINMAX
 #include <windows.h>
 #include <windowsx.h>
+#include <objidl.h>
 #include <gdiplus.h>
 
 #include <algorithm>
@@ -2403,7 +2404,10 @@ double NarrationBoxOpacity() {
     return SmoothStep(elapsed / kNarrationFadeInSeconds);
 }
 
-void DrawNarrationOverlay(HDC dc, const Layout& layout) {
+void DrawNarrationOverlay(
+    HDC dc,
+    const RECT& client,
+    const Layout& layout) {
     const double opacity = NarrationBoxOpacity();
     if (opacity <= 0.0) {
         return;
@@ -2412,7 +2416,7 @@ void DrawNarrationOverlay(HDC dc, const Layout& layout) {
     const RECT narrationBox = NarrationBoxRect(layout);
     DrawWithOpacity(
         dc,
-        narrationBox,
+        client,
         static_cast<BYTE>(std::lround(opacity * 255.0)),
         [&](HDC targetDc) {
             FillTranslucent(
@@ -3372,7 +3376,7 @@ void DrawApplication(HDC dc, const RECT& client) {
     const Layout layout = GetLayout(client);
     DrawPreparationSequenceUi(dc, layout);
     // 코인 UI를 먼저 그리고 나레이션 박스가 그 위를 덮도록 한다.
-    DrawNarrationOverlay(dc, layout);
+    DrawNarrationOverlay(dc, client, layout);
     if (gScreenState == ScreenState::BusinessClosing) {
         DrawBusinessClosing(dc, layout);
     } else if (gScreenState == ScreenState::Settlement) {
