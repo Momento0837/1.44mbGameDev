@@ -18,7 +18,7 @@
           "dialogueTree": {
             "id": "normal_dialogue_01",
             "I_entry": ["안녕하세요. 기본 샐러드랩 하나 주세요.", "기본 랩 하나 주세요."],
-            "II_additional": ["솔직히 기본이 가장 맛있는 거 아니겠어요?", "여기가 제일 맛있어요."],
+            "II_additional": ["솔직히 기본이 가장 맛있는 거 아니겠어요?", "그리고 여기가 제일 맛있어요."],
             "III_hoverHints": [
               {
                 "materialId": "lettuce",
@@ -133,42 +133,134 @@
           },
           "dialogueTree": {
             "id": "sequence_obsessed_dialogue_01",
-            "I_entry": [ "다양한 샐러드랩 하나 주세요.", "다양한 랩 하나 줘요." ],
-            "II_additional": [ "또띠아 위에 우선 양상추를 올려주시고요.", "", "", "", "" ],
+            "I_entry": [ "다양한 샐러드랩 하나 주세요.", "다양한 랩 하나 주세요." ],
+            "II_additional": [
+              "기본적으로 또띠아는 무조건 있어야죠.",
+              "양상추 위에는 무조건 당근이 올라가야해요!",
+              "아, 초록색이랑 주황색은 서로 잘 맞거든요. 예쁘잖아요.",
+              "그리고 뭔가 식욕을 돋구지 않나요?",
+              "마지막으로 파프리카 올려주시는 것도 까먹지 마세요! *^^*"
+            ],
             "III_hoverHints": [
               {
+                "materialId": "tortilla",
+                "nearby": [
+                  "둥글게 생긴게 달처럼 생기지 않았어요?",
+                  "참 고소하죠."
+                ],
+                "exact": [ "또띠아 좋아." ]
+              },
+              {
                 "materialId": "lettuce",
-                "nearby": [ "", "", "", "", "" ],
-                "exact": []
+                "nearby": [
+                  "양상추는 상추상추",
+                  "서양에서 온 상추라는 뜻이래요."
+                ],
+                "exact": [ "맛있겠다!" ]
+              },
+              {
+                "materialId": "raw_carrot",
+                "nearby": [
+                  "눈에 좋대요.",
+                  "아삭아삭하면서 달아요."
+                ],
+                "exact": [ "바니바니 당근당근" ]
+              },
+              {
+                "materialId": "raw_bell_pepper",
+                "nearby": [
+                  "어떻게 저런 색깔을 가졌을까요?",
+                  "샛노랗고 빨간게 예뻐요."
+                ],
+                "exact": [ "동글동글 귀여운 파프리카~" ]
               }
             ],
-            "IV_afterCooking": [ "", "" ],
-            "IV_afterCooking70Percent": [ "" ],
-            "IV_afterCooking50Percent": [ "" ],
-            "V_emptySubmission": [ "" ]
+            "IV_afterCooking": [
+              "역시 순서대로 올라간게 아주 최고에요.",
+              "주문 잘 들어주셔서 감사해요!"
+            ],
+            "IV_afterCooking70Percent": [
+              "뭔가 순서가 조금 다른 것 같은데요?"
+            ],
+            "IV_afterCooking50Percent": [
+              "제 말 들으신 거는 맞는 거에요??"
+            ],
+            "V_emptySubmission": [
+              "이런식으로 장사하지 마세요!"
+            ]
           }
         },
         {
           "id": "sequence_obsessed_menu_02",
-          "name": "",
+          "name": "Spinach_kimbop",
           "recipe": {
             "ingredients": [
-              {"materialId": "tortilla", "quantity": 1},
-              {"materialId": "tomato", "quantity": 1},
-              {"materialId": "egg_mayo", "quantity": 1}
+              {"materialId": "seaweed_and_rice", "quantity": 1},
+              {"materialId": "pickled_radish", "quantity": 1},
+              {"materialId": "spinach", "quantity": 2},
+              {"materialId": "burdock", "quantity": 1}
             ]
           },
           "dialogueTree": {
             "id": "sequence_obsessed_dialogue_02",
-            "I_entry": ["", ""],
-            "II_additional": ["", "", "", "", ""],
-            "III_hoverHints": [
-              {"materialId": "tomato", "nearby": ["", "", "", "", ""], "exact": []}
+            "I_entry": [
+              "시금치김밥 하나.",
+              "시금치 하나 줍쇼."
             ],
-            "IV_afterCooking": ["", ""],
-            "IV_afterCooking70Percent": [""],
-            "IV_afterCooking50Percent": [""],
-            "V_emptySubmission": [""]
+            "II_additional": [
+              "우선 밥을 올리시게.",
+              "주 재료가 들어가기 전에 단무지가 자리를 뎁혀두는겨.",
+              "시금치는 이 때! 이 때 들어가야돼!",
+              "아주아주 꽉꽉 들어차야돼.",
+              "마지막으로는 우엉을 올려. 화룡점정이지."
+            ],
+            "III_hoverHints": [
+              {
+                "materialId": "seaweed_and_rice",
+                "nearby": [
+                  "",
+                  ""
+                ],
+                "exact": [""]
+              },
+              {
+                "materialId": "pickled_radish",
+                "nearby": [
+                  "",
+                  ""
+                ],
+                "exact": [""]
+              },
+              {
+                "materialId": "spinach",
+                "nearby": [
+                  "",
+                  ""
+                ],
+                "exact": [""]
+              },
+              {
+                "materialId": "burdock",
+                "nearby": [
+                  "",
+                  ""
+                ],
+                "exact": [""]
+              },
+            ],
+            "IV_afterCooking": [
+              "",
+              ""
+            ],
+            "IV_afterCooking70Percent": [
+              ""
+            ],
+            "IV_afterCooking50Percent": [
+              ""
+            ],
+            "V_emptySubmission": [
+              ""
+            ]
           }
         },
         {
@@ -183,15 +275,43 @@
           },
           "dialogueTree": {
             "id": "sequence_obsessed_dialogue_03",
-            "I_entry": ["", ""],
-            "II_additional": ["", "", "", "", ""],
-            "III_hoverHints": [
-              {"materialId": "seaweed_and_rice", "nearby": ["", "", "", "", ""], "exact": []}
+            "I_entry": [
+              "",
+              ""
             ],
-            "IV_afterCooking": ["", ""],
-            "IV_afterCooking70Percent": [""],
-            "IV_afterCooking50Percent": [""],
-            "V_emptySubmission": [""]
+            "II_additional": [
+              "",
+              "",
+              "",
+              "",
+              ""
+            ],
+            "III_hoverHints": [
+              {
+                "materialId": "seaweed_and_rice",
+                "nearby": [
+                  "",
+                  "",
+                  "",
+                  "",
+                  ""
+                ],
+                "exact": []
+              }
+            ],
+            "IV_afterCooking": [
+              "",
+              ""
+            ],
+            "IV_afterCooking70Percent": [
+              ""
+            ],
+            "IV_afterCooking50Percent": [
+              ""
+            ],
+            "V_emptySubmission": [
+              ""
+            ]
           }
         }
       ]
@@ -212,15 +332,41 @@
           },
           "dialogueTree": {
             "id": "order_change_dialogue_01",
-            "I_entry": ["", ""],
-            "II_additional": ["", ""],
-            "III_hoverHints": [
-              {"materialId": "lettuce", "nearby": ["", "", "", "", "", ""], "exact": []}
+            "I_entry": [
+              "",
+              ""
             ],
-            "IV_afterCooking": ["", ""],
-            "IV_afterCooking70Percent": [""],
-            "IV_afterCooking50Percent": [""],
-            "V_emptySubmission": [""]
+            "II_additional": [
+              "",
+              ""
+            ],
+            "III_hoverHints": [
+              {
+                "materialId": "lettuce",
+                "nearby": [
+                  "",
+                  "",
+                  "",
+                  "",
+                  "",
+                  ""
+                ],
+                "exact": []
+              }
+            ],
+            "IV_afterCooking": [
+              "",
+              ""
+            ],
+            "IV_afterCooking70Percent": [
+              ""
+            ],
+            "IV_afterCooking50Percent": [
+              ""
+            ],
+            "V_emptySubmission": [
+              ""
+            ]
           }
         },
         {
@@ -235,15 +381,41 @@
           },
           "dialogueTree": {
             "id": "order_change_dialogue_02",
-            "I_entry": ["", ""],
-            "II_additional": ["", ""],
-            "III_hoverHints": [
-              {"materialId": "tomato", "nearby": ["", "", "", "", "", ""], "exact": []}
+            "I_entry": [
+              "",
+              ""
             ],
-            "IV_afterCooking": ["", ""],
-            "IV_afterCooking70Percent": [""],
-            "IV_afterCooking50Percent": [""],
-            "V_emptySubmission": [""]
+            "II_additional": [
+              "",
+              ""
+            ],
+            "III_hoverHints": [
+              {
+                "materialId": "tomato",
+                "nearby": [
+                  "",
+                  "",
+                  "",
+                  "",
+                  "",
+                  ""
+                ],
+                "exact": []
+              }
+            ],
+            "IV_afterCooking": [
+              "",
+              ""
+            ],
+            "IV_afterCooking70Percent": [
+              ""
+            ],
+            "IV_afterCooking50Percent": [
+              ""
+            ],
+            "V_emptySubmission": [
+              ""
+            ]
           }
         },
         {
@@ -258,15 +430,41 @@
           },
           "dialogueTree": {
             "id": "order_change_dialogue_03",
-            "I_entry": ["", ""],
-            "II_additional": ["", ""],
-            "III_hoverHints": [
-              {"materialId": "seaweed_and_rice", "nearby": ["", "", "", "", "", ""], "exact": []}
+            "I_entry": [
+              "",
+              ""
             ],
-            "IV_afterCooking": ["", ""],
-            "IV_afterCooking70Percent": [""],
-            "IV_afterCooking50Percent": [""],
-            "V_emptySubmission": [""]
+            "II_additional": [
+              "",
+              ""
+            ],
+            "III_hoverHints": [
+              {
+                "materialId": "seaweed_and_rice",
+                "nearby": [
+                  "",
+                  "",
+                  "",
+                  "",
+                  "",
+                  ""
+                ],
+                "exact": []
+              }
+            ],
+            "IV_afterCooking": [
+              "",
+              ""
+            ],
+            "IV_afterCooking70Percent": [
+              ""
+            ],
+            "IV_afterCooking50Percent": [
+              ""
+            ],
+            "V_emptySubmission": [
+              ""
+            ]
           }
         }
       ]
@@ -287,15 +485,42 @@
           },
           "dialogueTree": {
             "id": "large_order_dialogue_01",
-            "I_entry": ["", ""],
-            "II_additional": ["", "", "", "", "", ""],
-            "III_hoverHints": [
-              {"materialId": "lettuce", "nearby": ["", "", ""], "exact": []}
+            "I_entry": [
+              "",
+              ""
             ],
-            "IV_afterCooking": ["", ""],
-            "IV_afterCooking70Percent": [""],
-            "IV_afterCooking50Percent": [""],
-            "V_emptySubmission": [""]
+            "II_additional": [
+              "",
+              "",
+              "",
+              "",
+              "",
+              ""
+            ],
+            "III_hoverHints": [
+              {
+                "materialId": "lettuce",
+                "nearby": [
+                  "",
+                  "",
+                  ""
+                ],
+                "exact": []
+              }
+            ],
+            "IV_afterCooking": [
+              "",
+              ""
+            ],
+            "IV_afterCooking70Percent": [
+              ""
+            ],
+            "IV_afterCooking50Percent": [
+              ""
+            ],
+            "V_emptySubmission": [
+              ""
+            ]
           }
         },
         {
@@ -310,15 +535,42 @@
           },
           "dialogueTree": {
             "id": "large_order_dialogue_02",
-            "I_entry": ["", ""],
-            "II_additional": ["", "", "", "", "", ""],
-            "III_hoverHints": [
-              {"materialId": "tomato", "nearby": ["", "", ""], "exact": []}
+            "I_entry": [
+              "",
+              ""
             ],
-            "IV_afterCooking": ["", ""],
-            "IV_afterCooking70Percent": [""],
-            "IV_afterCooking50Percent": [""],
-            "V_emptySubmission": [""]
+            "II_additional": [
+              "",
+              "",
+              "",
+              "",
+              "",
+              ""
+            ],
+            "III_hoverHints": [
+              {
+                "materialId": "tomato",
+                "nearby": [
+                  "",
+                  "",
+                  ""
+                ],
+                "exact": []
+              }
+            ],
+            "IV_afterCooking": [
+              "",
+              ""
+            ],
+            "IV_afterCooking70Percent": [
+              ""
+            ],
+            "IV_afterCooking50Percent": [
+              ""
+            ],
+            "V_emptySubmission": [
+              ""
+            ]
           }
         },
         {
@@ -333,15 +585,42 @@
           },
           "dialogueTree": {
             "id": "large_order_dialogue_03",
-            "I_entry": ["", ""],
-            "II_additional": ["", "", "", "", "", ""],
-            "III_hoverHints": [
-              {"materialId": "seaweed_and_rice", "nearby": ["", "", ""], "exact": []}
+            "I_entry": [
+              "",
+              ""
             ],
-            "IV_afterCooking": ["", ""],
-            "IV_afterCooking70Percent": [""],
-            "IV_afterCooking50Percent": [""],
-            "V_emptySubmission": [""]
+            "II_additional": [
+              "",
+              "",
+              "",
+              "",
+              "",
+              ""
+            ],
+            "III_hoverHints": [
+              {
+                "materialId": "seaweed_and_rice",
+                "nearby": [
+                  "",
+                  "",
+                  ""
+                ],
+                "exact": []
+              }
+            ],
+            "IV_afterCooking": [
+              "",
+              ""
+            ],
+            "IV_afterCooking70Percent": [
+              ""
+            ],
+            "IV_afterCooking50Percent": [
+              ""
+            ],
+            "V_emptySubmission": [
+              ""
+            ]
           }
         }
       ]
@@ -362,15 +641,44 @@
           },
           "dialogueTree": {
             "id": "tmi_dialogue_01",
-            "I_entry": ["", ""],
-            "II_additional": ["", "", "", "", "", "", "", ""],
-            "III_hoverHints": [
-              {"materialId": "lettuce", "nearby": ["", "", ""], "exact": []}
+            "I_entry": [
+              "",
+              ""
             ],
-            "IV_afterCooking": ["", ""],
-            "IV_afterCooking70Percent": [""],
-            "IV_afterCooking50Percent": [""],
-            "V_emptySubmission": [""]
+            "II_additional": [
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              ""
+            ],
+            "III_hoverHints": [
+              {
+                "materialId": "lettuce",
+                "nearby": [
+                  "",
+                  "",
+                  ""
+                ],
+                "exact": []
+              }
+            ],
+            "IV_afterCooking": [
+              "",
+              ""
+            ],
+            "IV_afterCooking70Percent": [
+              ""
+            ],
+            "IV_afterCooking50Percent": [
+              ""
+            ],
+            "V_emptySubmission": [
+              ""
+            ]
           }
         },
         {
@@ -385,15 +693,44 @@
           },
           "dialogueTree": {
             "id": "tmi_dialogue_02",
-            "I_entry": ["", ""],
-            "II_additional": ["", "", "", "", "", "", "", ""],
-            "III_hoverHints": [
-              {"materialId": "tomato", "nearby": ["", "", ""], "exact": []}
+            "I_entry": [
+              "",
+              ""
             ],
-            "IV_afterCooking": ["", ""],
-            "IV_afterCooking70Percent": [""],
-            "IV_afterCooking50Percent": [""],
-            "V_emptySubmission": [""]
+            "II_additional": [
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              ""
+            ],
+            "III_hoverHints": [
+              {
+                "materialId": "tomato",
+                "nearby": [
+                  "",
+                  "",
+                  ""
+                ],
+                "exact": []
+              }
+            ],
+            "IV_afterCooking": [
+              "",
+              ""
+            ],
+            "IV_afterCooking70Percent": [
+              ""
+            ],
+            "IV_afterCooking50Percent": [
+              ""
+            ],
+            "V_emptySubmission": [
+              ""
+            ]
           }
         },
         {
@@ -408,15 +745,44 @@
           },
           "dialogueTree": {
             "id": "tmi_dialogue_03",
-            "I_entry": ["", ""],
-            "II_additional": ["", "", "", "", "", "", "", ""],
-            "III_hoverHints": [
-              {"materialId": "seaweed_and_rice", "nearby": ["", "", ""], "exact": []}
+            "I_entry": [
+              "",
+              ""
             ],
-            "IV_afterCooking": ["", ""],
-            "IV_afterCooking70Percent": [""],
-            "IV_afterCooking50Percent": [""],
-            "V_emptySubmission": [""]
+            "II_additional": [
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              ""
+            ],
+            "III_hoverHints": [
+              {
+                "materialId": "seaweed_and_rice",
+                "nearby": [
+                  "",
+                  "",
+                  ""
+                ],
+                "exact": []
+              }
+            ],
+            "IV_afterCooking": [
+              "",
+              ""
+            ],
+            "IV_afterCooking70Percent": [
+              ""
+            ],
+            "IV_afterCooking50Percent": [
+              ""
+            ],
+            "V_emptySubmission": [
+              ""
+            ]
           }
         }
       ]
@@ -437,15 +803,35 @@
           },
           "dialogueTree": {
             "id": "silent_dialogue_01",
-            "I_entry": ["", ""],
-            "II_additional": [""],
-            "III_hoverHints": [
-              {"materialId": "lettuce", "nearby": [""], "exact": []}
+            "I_entry": [
+              "",
+              ""
             ],
-            "IV_afterCooking": ["", ""],
-            "IV_afterCooking70Percent": [""],
-            "IV_afterCooking50Percent": [""],
-            "V_emptySubmission": [""]
+            "II_additional": [
+              ""
+            ],
+            "III_hoverHints": [
+              {
+                "materialId": "lettuce",
+                "nearby": [
+                  ""
+                ],
+                "exact": []
+              }
+            ],
+            "IV_afterCooking": [
+              "",
+              ""
+            ],
+            "IV_afterCooking70Percent": [
+              ""
+            ],
+            "IV_afterCooking50Percent": [
+              ""
+            ],
+            "V_emptySubmission": [
+              ""
+            ]
           }
         },
         {
@@ -460,15 +846,35 @@
           },
           "dialogueTree": {
             "id": "silent_dialogue_02",
-            "I_entry": ["", ""],
-            "II_additional": [""],
-            "III_hoverHints": [
-              {"materialId": "tomato", "nearby": [""], "exact": []}
+            "I_entry": [
+              "",
+              ""
             ],
-            "IV_afterCooking": ["", ""],
-            "IV_afterCooking70Percent": [""],
-            "IV_afterCooking50Percent": [""],
-            "V_emptySubmission": [""]
+            "II_additional": [
+              ""
+            ],
+            "III_hoverHints": [
+              {
+                "materialId": "tomato",
+                "nearby": [
+                  ""
+                ],
+                "exact": []
+              }
+            ],
+            "IV_afterCooking": [
+              "",
+              ""
+            ],
+            "IV_afterCooking70Percent": [
+              ""
+            ],
+            "IV_afterCooking50Percent": [
+              ""
+            ],
+            "V_emptySubmission": [
+              ""
+            ]
           }
         },
         {
@@ -483,15 +889,35 @@
           },
           "dialogueTree": {
             "id": "silent_dialogue_03",
-            "I_entry": ["", ""],
-            "II_additional": [""],
-            "III_hoverHints": [
-              {"materialId": "seaweed_and_rice", "nearby": [""], "exact": []}
+            "I_entry": [
+              "",
+              ""
             ],
-            "IV_afterCooking": ["", ""],
-            "IV_afterCooking70Percent": [""],
-            "IV_afterCooking50Percent": [""],
-            "V_emptySubmission": [""]
+            "II_additional": [
+              ""
+            ],
+            "III_hoverHints": [
+              {
+                "materialId": "seaweed_and_rice",
+                "nearby": [
+                  ""
+                ],
+                "exact": []
+              }
+            ],
+            "IV_afterCooking": [
+              "",
+              ""
+            ],
+            "IV_afterCooking70Percent": [
+              ""
+            ],
+            "IV_afterCooking50Percent": [
+              ""
+            ],
+            "V_emptySubmission": [
+              ""
+            ]
           }
         }
       ]
