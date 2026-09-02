@@ -1,5 +1,5 @@
 {
-  "names": ["홍길동", "김길동", "김춘식"],
+  "names": [ "홍길동", "김길동", "김춘식", "한초롱", "박김국", "한누리", "윤가람", "이율", "한우리" ],
   "customerCategories": [
     {
       "id": "normal",
@@ -10,34 +10,45 @@
           "name": "default_wrap",
           "recipe": {
             "ingredients": [
-              {"materialId": "tortilla", "quantity": 1},
-              {"materialId": "lettuce", "quantity": 2},
-              {"materialId": "raw_carrot", "quantity": 1}
+              {
+                "materialId": "tortilla",
+                "quantity": 1
+              },
+              {
+                "materialId": "lettuce",
+                "quantity": 2
+              },
+              {
+                "materialId": "raw_carrot",
+                "quantity": 1
+              }
             ]
           },
           "dialogueTree": {
             "id": "normal_dialogue_01",
-            "I_entry": ["안녕하세요. 기본 샐러드랩 하나 주세요.", "기본 랩 하나 주세요."],
-            "II_additional": ["솔직히 기본이 가장 맛있는 거 아니겠어요?", "그리고 여기가 제일 맛있어요."],
+            "I_entry": [ "안녕하세요. 기본 샐러드랩 하나 주세요.", "기본 랩 하나 주세요." ],
+            "II_additional": [ "솔직히 기본이 가장 맛있는 거 아니겠어요?", "그리고 여기가 제일 맛있어요." ],
             "III_hoverHints": [
               {
                 "materialId": "lettuce",
                 "nearby": [ "이상하게 양상추랑 양배추랑 헷갈려요.", "야채는 매일 아침마다 손질하시는 거에요?", "엄청 신선해보이네요!" ],
-                "exact": ["맛있겠다. 얼른 만들어주세요!"]},
+                "exact": [ "맛있겠다. 얼른 만들어주세요!" ]
+              },
               {
                 "materialId": "raw_carrot",
-                "nearby": [ "당근이 눈에 좋다면서요?", "당근 싫어하는 사람 이해가 잘 안돼요." ], 
-                "exact": ["맛있겠어요."]},
+                "nearby": [ "당근이 눈에 좋다면서요?", "당근 싫어하는 사람 이해가 잘 안돼요." ],
+                "exact": [ "맛있겠어요." ]
+              },
               {
                 "materialId": "tortilla",
                 "nearby": [ "또띠아 진짜 맛있지 않아요? 정신 없이 먹다가 살이 5kg나 쪘어요.", "베이직하니 가볍게 먹기 참 좋죠." ],
                 "exact": [ "랩을 만든 사람은 천재라고 생각해요." ]
               }
             ],
-            "IV_afterCooking": ["감사합니다. 맛있게 잘 먹을게요!", "잘 먹겠습니다. 수고하세요."],
-            "IV_afterCooking70Percent": ["좀 이상한 것 같긴 한데... 일단 잘 먹겠습니다!", "뭔가 이상한 것 같은데? 잘 먹을게요."],
+            "IV_afterCooking": [ "감사합니다. 맛있게 잘 먹을게요!", "잘 먹겠습니다. 수고하세요." ],
+            "IV_afterCooking70Percent": [ "좀 이상한 것 같긴 한데... 일단 잘 먹겠습니다!", "뭔가 이상한 것 같은데? 잘 먹을게요." ],
             "IV_afterCooking50Percent": [ "시간이 없어서 뭐라 하지는 못하겠고요... 그냥 먹을게요.", "이렇게 주시면 어떡해요? 다음에는 제대로 주세요..." ],
-            "V_emptySubmission": ["이렇게 장사하지 마세요.", "이렇게 하면 돈이 되세요?"]
+            "V_emptySubmission": [ "이렇게 장사하지 마세요.", "이렇게 하면 돈이 되세요?" ]
           }
         },
         {
@@ -45,15 +56,24 @@
           "name": "eggmayo_wrap",
           "recipe": {
             "ingredients": [
-              {"materialId": "tortilla", "quantity": 1},
-              {"materialId": "tomato", "quantity": 1},
-              {"materialId": "egg_mayo", "quantity": 1}
+              {
+                "materialId": "tortilla",
+                "quantity": 1
+              },
+              {
+                "materialId": "tomato",
+                "quantity": 1
+              },
+              {
+                "materialId": "egg_mayo",
+                "quantity": 1
+              }
             ]
           },
           "dialogueTree": {
             "id": "normal_dialogue_02",
-            "I_entry": ["안녕하세요. 에그마요 토마토 랩 하나 주세요.", "에그마요 토마토 하나요."],
-            "II_additional": ["저는 이상하게 양상추가 싫더라구요.", "에그마요는 언제나 옳은 선택이죠!"],
+            "I_entry": [ "안녕하세요. 에그마요 토마토 랩 하나 주세요.", "에그마요 토마토 하나요." ],
+            "II_additional": [ "저는 이상하게 양상추가 싫더라구요.", "에그마요는 언제나 옳은 선택이죠!" ],
             "III_hoverHints": [
               {
                 "materialId": "tortilla",
@@ -71,9 +91,9 @@
                 "exact": [ "부드러우면서 꾸덕한게 최고에요." ]
               }
             ],
-            "IV_afterCooking": ["오늘도 역시 황금비율이네요. 맛있어요.", "토마토랑 계란은 역시 최고!"],
-            "IV_afterCooking70Percent": ["이상하네. 맛이 원래 이랬나?", "일단 잘 먹을게요. 맛있긴 하네."],
-            "IV_afterCooking50Percent": ["맛이 왜이래요 이거?", "토마토랑 계란이 맛없기 쉽지 않은데..."],
+            "IV_afterCooking": [ "오늘도 역시 황금비율이네요. 맛있어요.", "토마토랑 계란은 역시 최고!" ],
+            "IV_afterCooking70Percent": [ "이상하네. 맛이 원래 이랬나?", "일단 잘 먹을게요. 맛있긴 하네." ],
+            "IV_afterCooking50Percent": [ "맛이 왜이래요 이거?", "토마토랑 계란이 맛없기 쉽지 않은데..." ],
             "V_emptySubmission": [ "이렇게 장사하지 마세요.", "이렇게 하면 돈이 되세요?" ]
           }
         },
@@ -82,35 +102,44 @@
           "name": "kimbop",
           "recipe": {
             "ingredients": [
-              {"materialId": "seaweed_and_rice", "quantity": 1},
-              {"materialId": "burdock", "quantity": 1},
-              {"materialId": "pickled_radish", "quantity": 1}
+              {
+                "materialId": "seaweed_and_rice",
+                "quantity": 1
+              },
+              {
+                "materialId": "burdock",
+                "quantity": 1
+              },
+              {
+                "materialId": "pickled_radish",
+                "quantity": 1
+              }
             ]
           },
           "dialogueTree": {
             "id": "normal_dialogue_03",
-            "I_entry": ["김밥 한줄이요.", "기본 김밥 하나요!"],
-            "II_additional": ["우엉이랑 단무지만 든 거 맞죠?", "매일 출근하면서 먹는데 질리지도 않네요."],
+            "I_entry": [ "김밥 한줄이요.", "기본 김밥 하나요!" ],
+            "II_additional": [ "우엉이랑 단무지만 든 거 맞죠?", "매일 출근하면서 먹는데 질리지도 않네요." ],
             "III_hoverHints": [
               {
                 "materialId": "seaweed_and_rice",
                 "nearby": [ "김은 누가 먼저 말려먹기 시작했을까요?", "밥이랑만 먹어도 맛있죠." ],
-                "exact": ["김밥의 기본!"]
+                "exact": [ "김밥의 기본!" ]
               },
               {
                 "materialId": "burdock",
                 "nearby": [ "오독오독 맛있어요.", "우엉 영어발음이 불독이랑 비슷한 거 아세요?" ],
-                "exact": ["짭짤하게 무쳐두셨네요."]
+                "exact": [ "짭짤하게 무쳐두셨네요." ]
               },
               {
                 "materialId": "pickled_radish",
                 "nearby": [ "옛날에 단무지만 주워 먹다가 된통 혼난 적 있어요.", "이게 빠지면 김밥이라고 하기 섭하달까." ],
-                "exact": ["왜 단무지일까요? 새콤달콤하잖아요. 어쨌든 달아서 그런 건가?"]
+                "exact": [ "왜 단무지일까요? 새콤달콤하잖아요. 어쨌든 달아서 그런 건가?" ]
               }
             ],
-            "IV_afterCooking": ["김밥은 간단하게 먹기 참 좋죠. 잘 먹을게요!", "전 세상에서 우엉이 제일 좋아요."],
-            "IV_afterCooking70Percent": ["기본 김밥 맞죠? 비율이 이상한데.", "이상해 보이긴 하지만 맛있겠죠 뭐. 설마 맛없겠어요?"],
-            "IV_afterCooking50Percent": ["김밥 맞죠? 평소에 먹던 거랑 많이 다르게 생겼네요.", "이게 뭔가요?"],
+            "IV_afterCooking": [ "김밥은 간단하게 먹기 참 좋죠. 잘 먹을게요!", "전 세상에서 우엉이 제일 좋아요." ],
+            "IV_afterCooking70Percent": [ "기본 김밥 맞죠? 비율이 이상한데.", "이상해 보이긴 하지만 맛있겠죠 뭐. 설마 맛없겠어요?" ],
+            "IV_afterCooking50Percent": [ "김밥 맞죠? 평소에 먹던 거랑 많이 다르게 생겼네요.", "이게 뭔가요?" ],
             "V_emptySubmission": [ "이렇게 장사하지 마세요.", "이렇게 하면 돈이 되세요?" ]
           }
         }
@@ -125,10 +154,22 @@
           "name": "Various_salad_wrap",
           "recipe": {
             "ingredients": [
-              {"materialId": "tortilla", "quantity": 1},
-              {"materialId": "lettuce", "quantity": 1},
-              {"materialId": "raw_carrot", "quantity": 1},
-              {"materialId": "raw_bell_pepper", "quantity": 1}
+              {
+                "materialId": "tortilla",
+                "quantity": 1
+              },
+              {
+                "materialId": "lettuce",
+                "quantity": 1
+              },
+              {
+                "materialId": "raw_carrot",
+                "quantity": 1
+              },
+              {
+                "materialId": "raw_bell_pepper",
+                "quantity": 1
+              }
             ]
           },
           "dialogueTree": {
@@ -183,7 +224,7 @@
               "뭔가 순서가 조금 다른 것 같은데요?"
             ],
             "IV_afterCooking50Percent": [
-              "제 말 들으신 거는 맞는 거에요??"
+              "제 말 들으신 거는 맞는 거에요?!"
             ],
             "V_emptySubmission": [
               "이런식으로 장사하지 마세요!"
@@ -195,21 +236,33 @@
           "name": "Spinach_kimbop",
           "recipe": {
             "ingredients": [
-              {"materialId": "seaweed_and_rice", "quantity": 1},
-              {"materialId": "pickled_radish", "quantity": 1},
-              {"materialId": "spinach", "quantity": 2},
-              {"materialId": "burdock", "quantity": 1}
+              {
+                "materialId": "seaweed_and_rice",
+                "quantity": 1
+              },
+              {
+                "materialId": "pickled_radish",
+                "quantity": 1
+              },
+              {
+                "materialId": "spinach",
+                "quantity": 2
+              },
+              {
+                "materialId": "burdock",
+                "quantity": 1
+              }
             ]
           },
           "dialogueTree": {
             "id": "sequence_obsessed_dialogue_02",
             "I_entry": [
               "시금치김밥 하나.",
-              "시금치 하나 줍쇼."
+              "시금치 하나 줍세."
             ],
             "II_additional": [
               "우선 밥을 올리시게.",
-              "주 재료가 들어가기 전에 단무지가 자리를 뎁혀두는겨.",
+              "주 재료가 들어가기 전에 단무지가 자리를 뎁혀두는거지.",
               "시금치는 이 때! 이 때 들어가야돼!",
               "아주아주 꽉꽉 들어차야돼.",
               "마지막으로는 우엉을 올려. 화룡점정이지."
@@ -218,99 +271,121 @@
               {
                 "materialId": "seaweed_and_rice",
                 "nearby": [
-                  "",
-                  ""
+                  "가장 기본이 되는 재료지.",
+                  "이것만 먹어도 사실 맛있어."
                 ],
-                "exact": [""]
+                "exact": [ "이걸 올려야 남은 재료들을 올릴 것 아닌가!" ]
               },
               {
                 "materialId": "pickled_radish",
                 "nearby": [
-                  "",
-                  ""
+                  "아주 감초같은 역할이야. 새콤달콤하지.",
+                  "무를 이렇게 만들 생각은 누가 먼저 했을꼬?"
                 ],
-                "exact": [""]
+                "exact": [ "빠뜨릴 수 없는 재료야. 어서 올려!" ]
               },
               {
                 "materialId": "spinach",
                 "nearby": [
-                  "",
-                  ""
+                  "이 김밥의 주인공이라고 할 수 있지.",
+                  "적당히 데친 것이 아주 예술이군!"
                 ],
-                "exact": [""]
+                "exact": [ "많이많이 올려주시게나." ]
               },
               {
                 "materialId": "burdock",
                 "nearby": [
-                  "",
-                  ""
+                  "단단한 식감을 더해주는 친구일세.",
+                  "개인적으로 단무지보다 식감이 더 좋다고 생각해."
                 ],
-                "exact": [""]
-              },
+                "exact": [ "마지막으로 이걸 올려주면 완벽하지!" ]
+              }
             ],
             "IV_afterCooking": [
-              "",
-              ""
+              "하하, 고맙네 친구. 잘 먹겠네.",
+              "자네 덕에 또 맛있는 밥을 먹겠구만."
             ],
             "IV_afterCooking70Percent": [
-              ""
+              "약간 모양이 다른 것 같은데 기분탓인지."
             ],
             "IV_afterCooking50Percent": [
-              ""
+              "내 요청사항을 듣긴 한 것 맞나?"
             ],
             "V_emptySubmission": [
-              ""
+              "이럴거면 주문을 받지 말게나!"
             ]
           }
         },
         {
           "id": "sequence_obsessed_menu_03",
-          "name": "",
+          "name": "burdock_many_kimbop",
           "recipe": {
             "ingredients": [
-              {"materialId": "seaweed_and_rice", "quantity": 1},
-              {"materialId": "burdock", "quantity": 1},
-              {"materialId": "pickled_radish", "quantity": 1}
+              {
+                "materialId": "seaweed_and_rice",
+                "quantity": 1
+              },
+              {
+                "materialId": "burdock",
+                "quantity": 5
+              },
+              {
+                "materialId": "pickled_radish",
+                "quantity": 1
+              }
             ]
           },
           "dialogueTree": {
             "id": "sequence_obsessed_dialogue_03",
             "I_entry": [
-              "",
-              ""
+              "반가워요! 우엉 많이 김밥 주세요.",
+              "안녕하세요. 우엉 많이 김밥 하나요!"
             ],
             "II_additional": [
-              "",
-              "",
-              "",
-              "",
-              ""
+              "우선 김밥을 먼저 깔아주시구요.",
+              "그 다음에 우엉...",
+              "또 우엉...",
+              "우엉 우엉 우엉.....",
+              "그리고 마무리로 단무지!"
             ],
             "III_hoverHints": [
               {
                 "materialId": "seaweed_and_rice",
                 "nearby": [
-                  "",
-                  "",
-                  "",
-                  "",
-                  ""
+                  "꼭 밥을 깔아주셔야해요. 안그러면 우엉이 도망가요.",
+                  "우엉만 먹어도 좋지만, 이게 있어야 조화가 좋거든요."
                 ],
-                "exact": []
+                "exact": ["밥은 최대한 조금만 부탁드릴게요!"]
+              },
+              {
+                "materialId": "burdock",
+                "nearby": [
+                  "우엉은 왜 인기가 없는지 모르겠어요. 저는 우엉이 정말 좋아서 우엉만 매일매일 먹고 싶고 매일매일 조림으로 먹고 싶거든요.",
+                  "옛날부터 우엉이 너무 좋아서 우엉만 먹다가 엄마한테 된통 혼난적 있어요. 진짜 맛있는데 왜 아무도 안 먹을까요..."
+                ],
+                "exact": [ "우엉 많이많이요!" ]
+              },
+              {
+                "materialId": "pickled_radish",
+                "nearby": [
+                  "이거라도 없으면 김밥이 아니라고 해야 하나.",
+                  "이게 없으면 좀 커진 꼬마김밥? 같다고 해야 할까요?"
+                ],
+                "exact": [ "좋아요. 이거 넣으면 이제 끝이에요!" ]
               }
             ],
             "IV_afterCooking": [
-              "",
-              ""
+              "세상은 우엉을 좀 더 많이 먹어야해요. 잘먹을게요!",
+              "역시 여기만큼 우엉 많이 주는 곳이 없어요. 최고!"
             ],
             "IV_afterCooking70Percent": [
-              ""
+              "내용물 비율이 조금 이상한것 같은데요. 괜찮은거죠?"
             ],
             "IV_afterCooking50Percent": [
-              ""
+              "이건 우엉 많이 김밥이 아니잖아요!"
             ],
             "V_emptySubmission": [
-              ""
+              "오늘은 우엉 안 파는 거에요?! 이럴수가!"
             ]
           }
         }
@@ -322,148 +397,243 @@
       "menus": [
         {
           "id": "order_change_menu_01",
-          "name": "",
+          "name": "mintchoco_wrap",
           "recipe": {
             "ingredients": [
-              {"materialId": "tortilla", "quantity": 1},
-              {"materialId": "lettuce", "quantity": 2},
-              {"materialId": "raw_carrot", "quantity": 1}
+              {
+                "materialId": "tortilla",
+                "quantity": 1
+              },
+              {
+                "materialId": "mint_chocolate",
+                "quantity": 3
+              },
+              {
+                "materialId": "chocolate",
+                "quantity": 1
+              }
             ]
           },
           "dialogueTree": {
             "id": "order_change_dialogue_01",
             "I_entry": [
-              "",
-              ""
+              "안녕하세요. 기본 랩 하나 주세요.",
+              "안녕하세요 기본 샐러드랩 하나 주세요."
             ],
             "II_additional": [
-              "",
-              ""
+              "음....",
+              "아 근데 제가 상추를 싫어하거든요. 전부 빼주세요.",
+              "아 저 당근도 싫어해요. 당근도 빼주세요.",
+              "아닌가 상추는 좀 넣는게 나을까요?",
+              "아..아니다 상추 그냥 빼주세요.",
+              "맞다. 저는 민트초코 좋아하거든요. 민트초코 좀 많이 넣어주세요.",
+              "아 근데 초콜릿이 더 들어가면 좋겠거든요.",
+              "초콜릿 음...하나? 정도만 넣어주세요.",
+              "어..... 이정도만 할게요."
             ],
             "III_hoverHints": [
               {
                 "materialId": "lettuce",
                 "nearby": [
-                  "",
-                  "",
-                  "",
-                  "",
-                  "",
-                  ""
+                  "상추는 좀..."
                 ],
                 "exact": []
+              },
+              {
+                "materialId": "tortilla",
+                "nearby": [
+                  "또띠아 멀쩡하게 생긴 걸로 넣어주세요...",
+                  "민트초코 좋아하세요?... 또띠아랑 잘 어울려요..."
+                ],
+                "exact": ["구멍이 없어야 손에 안 묻을텐데..."]
+              },
+              {
+                "materialId": "mint_chocolate",
+                "nearby": [
+                  "민트초코 먹다보면 중독되는데... 민초 좋아하세요?",
+                  "이상하다... 왜 다들 안 좋아하지..."
+                ],
+                "exact": ["기왕이면 초콜릿 많은 부분으로 부탁드려요..."]
+              },
+              {
+                "materialId": "chocolate",
+                "nearby": [
+                  "그냥 먹는 것도 좋아하지만 너무 달아요.",
+                  "다크 초콜릿 맞죠...?"
+                ],
+                "exact": ["적당한 부분으로 골라주세요..."]
               }
             ],
             "IV_afterCooking": [
-              "",
-              ""
+              "감사합니다. 민초가 가득이네요.",
+              "다들 왜 민초 싫어하지..."
             ],
             "IV_afterCooking70Percent": [
-              ""
+              "민초가 좀... 이상한데... 일단 먹을게요. 감사합니다."
             ],
             "IV_afterCooking50Percent": [
-              ""
+              "제 주문 제대로 들으신 거 맞는거죠...?"
             ],
             "V_emptySubmission": [
-              ""
+              "아... 오늘 민초 팔기 싫으신 건가..."
             ]
           }
         },
         {
           "id": "order_change_menu_02",
-          "name": "",
+          "name": "Strawberry_tomato_kimbop",
           "recipe": {
             "ingredients": [
-              {"materialId": "tortilla", "quantity": 1},
-              {"materialId": "tomato", "quantity": 1},
-              {"materialId": "egg_mayo", "quantity": 1}
+              {
+                "materialId": "seaweed_and_rice",
+                "quantity": 1
+              },
+              {
+                "materialId": "tomato",
+                "quantity": 2
+              },
+              {
+                "materialId": "strawberry",
+                "quantity": 12
+              }
             ]
           },
           "dialogueTree": {
             "id": "order_change_dialogue_02",
             "I_entry": [
-              "",
-              ""
+              "하하! 안녕하세요 오늘은 새로운 걸 도전하려구요!",
+              "오늘이야말로 새로운 메뉴를 도전하겠어요."
             ],
             "II_additional": [
-              "",
-              ""
-            ],
-            "III_hoverHints": [
-              {
-                "materialId": "tomato",
-                "nearby": [
-                  "",
-                  "",
-                  "",
-                  "",
-                  "",
-                  ""
-                ],
-                "exact": []
-              }
-            ],
-            "IV_afterCooking": [
-              "",
-              ""
-            ],
-            "IV_afterCooking70Percent": [
-              ""
-            ],
-            "IV_afterCooking50Percent": [
-              ""
-            ],
-            "V_emptySubmission": [
-              ""
-            ]
-          }
-        },
-        {
-          "id": "order_change_menu_03",
-          "name": "",
-          "recipe": {
-            "ingredients": [
-              {"materialId": "seaweed_and_rice", "quantity": 1},
-              {"materialId": "burdock", "quantity": 1},
-              {"materialId": "pickled_radish", "quantity": 1}
-            ]
-          },
-          "dialogueTree": {
-            "id": "order_change_dialogue_03",
-            "I_entry": [
-              "",
-              ""
-            ],
-            "II_additional": [
-              "",
-              ""
+              "우선 김이랑 밥을 올려주세요.",
+              "음... 그리고 단무지 올려주시구요.",
+              "아, 아니다. 단무지 빼주세요!",
+              "아닌가 넣을까...",
+              "아니다. 그냥 거기에 토마토 올려주세요. 조금 많이요!",
+              "그 위에는 이제...음...",
+              "아. 딸기 많이 올려서 마무리할게요!"
             ],
             "III_hoverHints": [
               {
                 "materialId": "seaweed_and_rice",
                 "nearby": [
-                  "",
-                  "",
-                  "",
-                  "",
-                  "",
-                  ""
+                  "얼른 올려주세요. 기대된다.",
+                  "생각보다 맛있을지도 모르잖아요?"
                 ],
-                "exact": []
+                "exact": ["김밥김밥~"]
+              },
+              {
+                "materialId": "tomato",
+                "nearby": [
+                  "토마토랑 딸기는 맛있지 않을까요?",
+                  "아닌가. 그래도 도전 해볼만하다고 생각해요."
+                ],
+                "exact": ["토마토는 그냥 먹어도 맛있죠."]
+              },
+              {
+                "materialId": "strawberry",
+                "nearby": [
+                  "빨간 채소 다음 빨간 과일!",
+                  "제가 먹고 후기 남겨드릴게요. 알겠죠?"
+                ],
+                "exact": ["딸기밥이라는 것도 있지 않았나요?"]
               }
             ],
             "IV_afterCooking": [
-              "",
-              ""
+              "음...........어.....음...다음부터는 안 먹을래요!",
+              "어........음....... 다음에는 정상적인 메뉴 주문할게요!"
             ],
             "IV_afterCooking70Percent": [
-              ""
+              "제가 주문한 거랑 조금 다른 것 같은데..."
             ],
             "IV_afterCooking50Percent": [
-              ""
+              "왜 이게 더 맛있는 것 같지...?"
             ],
             "V_emptySubmission": [
-              ""
+              "이런 이상한 주문은 받지도 않는 건가요..."
+            ]
+          }
+        },
+        {
+          "id": "order_change_menu_03",
+          "name": "crab_carrot_salad",
+          "recipe": {
+            "ingredients": [
+              {
+                "materialId": "crab_stick",
+                "quantity": 2
+              },
+              {
+                "materialId": "raw_carrot",
+                "quantity": 1
+              },
+              {
+                "materialId": "lettuce",
+                "quantity": 2
+              }
+            ]
+          },
+          "dialogueTree": {
+            "id": "order_change_dialogue_03",
+            "I_entry": [
+              "안녕하세요. 여기 샐러드도 팔아요?",
+              "샐러드랩 말고 샐러드가 먹고 싶은데요."
+            ],
+            "II_additional": [
+              "저는 게맛살이 좋아서요. 게맛살 많이 주세요.",
+              "음... 그리고 토마토?",
+              "그 다음에는 당근이랑...",
+              "아, 양상추도 잊으면 안되죠.",
+              "그리고 에그마요도 넣어주시고...",
+              "씁... 아닌가?",
+              "그냥 토마토랑 에그마요 둘 다 빼주세요."
+            ],
+            "III_hoverHints": [
+              {
+                "materialId": "tomato",
+                "nearby": [
+                  "고민되네요. 토마토도 샐러드에 들어가면 맛있거든요."
+                ],
+                "exact": ["그래도 토마토가 들어가면 축축해져서 별로에요."]
+              },
+              {
+                "materialId": "crab_stick",
+                "nearby": [
+                  "진짜 게살은 별로 안 좋아하는데 게맛살은 맛있더라구요.",
+                  "손으로 쭉쭉 찢어먹는게 맛있어요."
+                ],
+                "exact": ["게맛살 좋아하세요? 전 좋아해요. 많이 넣어주세요."]
+              },
+              {
+                "materialId": "raw_carrot",
+                "nearby": [
+                  "어렸을 땐 싫어했는데, 지금 먹으니까 생각보다 맛있네요.",
+                  "눈에 좋대요. 전 눈이 안 좋거든요."
+                ],
+                "exact": ["그래도 당근은 조금만요."]
+              },
+              {
+                "materialId": "lettuce",
+                "nearby": [
+                  "이상하게 샐러드라고 하면 양상추는 필수 같아요.",
+                  "아삭아삭하고 맛있죠. 샐러드의 필수요소에요.",
+                  "양상추를 삶아 먹으면 어떨까요? 일단 전 안 먹어봤어요."
+                ],
+                "exact": ["많이 넣어주세요."]
+              }
+            ],
+            "IV_afterCooking": [
+              "음, 역시 이맛이네요. 감사합니다.",
+              "무리한 주문인가 했는데 흔쾌히 받아주셔서 감사해요. 맛있네요."
+            ],
+            "IV_afterCooking70Percent": [
+              "좀 맛이 다른 것 같은데요. 샐러드 맞죠?"
+            ],
+            "IV_afterCooking50Percent": [
+              "이건 샐러드가 아닌 것 같아요..."
+            ],
+            "V_emptySubmission": [
+              "역시 무리한 주문이군요. 안녕히계세요."
             ]
           }
         }
@@ -475,19 +645,28 @@
       "menus": [
         {
           "id": "large_order_menu_01",
-          "name": "",
+          "name": "manymany_lattuce_salad_wrap",
           "recipe": {
             "ingredients": [
-              {"materialId": "tortilla", "quantity": 1},
-              {"materialId": "lettuce", "quantity": 2},
-              {"materialId": "raw_carrot", "quantity": 1}
+              {
+                "materialId": "tortilla",
+                "quantity": 1
+              },
+              {
+                "materialId": "lettuce",
+                "quantity": 8
+              },
+              {
+                "materialId": "raw_carrot",
+                "quantity": 1
+              }
             ]
           },
           "dialogueTree": {
             "id": "large_order_dialogue_01",
             "I_entry": [
-              "",
-              ""
+              "하이요. 양상추 많이많이많이샐러드랩 하나 주세용.",
+              "많이많이양상추샐러드랩 하나용."
             ],
             "II_additional": [
               "",
@@ -528,9 +707,18 @@
           "name": "",
           "recipe": {
             "ingredients": [
-              {"materialId": "tortilla", "quantity": 1},
-              {"materialId": "tomato", "quantity": 1},
-              {"materialId": "egg_mayo", "quantity": 1}
+              {
+                "materialId": "tortilla",
+                "quantity": 1
+              },
+              {
+                "materialId": "tomato",
+                "quantity": 1
+              },
+              {
+                "materialId": "egg_mayo",
+                "quantity": 1
+              }
             ]
           },
           "dialogueTree": {
@@ -578,9 +766,18 @@
           "name": "",
           "recipe": {
             "ingredients": [
-              {"materialId": "seaweed_and_rice", "quantity": 1},
-              {"materialId": "burdock", "quantity": 1},
-              {"materialId": "pickled_radish", "quantity": 1}
+              {
+                "materialId": "seaweed_and_rice",
+                "quantity": 1
+              },
+              {
+                "materialId": "burdock",
+                "quantity": 1
+              },
+              {
+                "materialId": "pickled_radish",
+                "quantity": 1
+              }
             ]
           },
           "dialogueTree": {
@@ -634,9 +831,18 @@
           "name": "",
           "recipe": {
             "ingredients": [
-              {"materialId": "tortilla", "quantity": 1},
-              {"materialId": "lettuce", "quantity": 2},
-              {"materialId": "raw_carrot", "quantity": 1}
+              {
+                "materialId": "tortilla",
+                "quantity": 1
+              },
+              {
+                "materialId": "lettuce",
+                "quantity": 2
+              },
+              {
+                "materialId": "raw_carrot",
+                "quantity": 1
+              }
             ]
           },
           "dialogueTree": {
@@ -686,9 +892,18 @@
           "name": "",
           "recipe": {
             "ingredients": [
-              {"materialId": "tortilla", "quantity": 1},
-              {"materialId": "tomato", "quantity": 1},
-              {"materialId": "egg_mayo", "quantity": 1}
+              {
+                "materialId": "tortilla",
+                "quantity": 1
+              },
+              {
+                "materialId": "tomato",
+                "quantity": 1
+              },
+              {
+                "materialId": "egg_mayo",
+                "quantity": 1
+              }
             ]
           },
           "dialogueTree": {
@@ -738,9 +953,18 @@
           "name": "",
           "recipe": {
             "ingredients": [
-              {"materialId": "seaweed_and_rice", "quantity": 1},
-              {"materialId": "burdock", "quantity": 1},
-              {"materialId": "pickled_radish", "quantity": 1}
+              {
+                "materialId": "seaweed_and_rice",
+                "quantity": 1
+              },
+              {
+                "materialId": "burdock",
+                "quantity": 1
+              },
+              {
+                "materialId": "pickled_radish",
+                "quantity": 1
+              }
             ]
           },
           "dialogueTree": {
@@ -796,9 +1020,18 @@
           "name": "",
           "recipe": {
             "ingredients": [
-              {"materialId": "tortilla", "quantity": 1},
-              {"materialId": "lettuce", "quantity": 2},
-              {"materialId": "raw_carrot", "quantity": 1}
+              {
+                "materialId": "tortilla",
+                "quantity": 1
+              },
+              {
+                "materialId": "lettuce",
+                "quantity": 2
+              },
+              {
+                "materialId": "raw_carrot",
+                "quantity": 1
+              }
             ]
           },
           "dialogueTree": {
@@ -839,9 +1072,18 @@
           "name": "",
           "recipe": {
             "ingredients": [
-              {"materialId": "tortilla", "quantity": 1},
-              {"materialId": "tomato", "quantity": 1},
-              {"materialId": "egg_mayo", "quantity": 1}
+              {
+                "materialId": "tortilla",
+                "quantity": 1
+              },
+              {
+                "materialId": "tomato",
+                "quantity": 1
+              },
+              {
+                "materialId": "egg_mayo",
+                "quantity": 1
+              }
             ]
           },
           "dialogueTree": {
@@ -882,9 +1124,18 @@
           "name": "",
           "recipe": {
             "ingredients": [
-              {"materialId": "seaweed_and_rice", "quantity": 1},
-              {"materialId": "burdock", "quantity": 1},
-              {"materialId": "pickled_radish", "quantity": 1}
+              {
+                "materialId": "seaweed_and_rice",
+                "quantity": 1
+              },
+              {
+                "materialId": "burdock",
+                "quantity": 1
+              },
+              {
+                "materialId": "pickled_radish",
+                "quantity": 1
+              }
             ]
           },
           "dialogueTree": {
