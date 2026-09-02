@@ -80,7 +80,7 @@ constexpr int kMaximumMaterialClones = 64;
 constexpr int kMaximumStarParticles = 32;
 constexpr double kStarParticleGravity = 260.0;
 constexpr double kStarParticleSize = 7.0;
-constexpr int kResetButtonWidth = 50;
+constexpr int kResetButtonWidth = 72;
 constexpr int kResetButtonHeight = 30;
 constexpr int kResetButtonMargin = 10;
 constexpr int kResetButtonRadius = 8;
@@ -90,6 +90,9 @@ constexpr int kNarrationBoxY = 10;
 constexpr int kNarrationBoxWidth = kDesignWidth - 20;
 constexpr int kNarrationBoxHeight = 160;
 constexpr ULONGLONG kNarrationCharacterIntervalMilliseconds = 80;
+constexpr double kNarrationAutoAdvanceSeconds = 2.0;
+constexpr int kMaximumNarrationParticles = 128;
+constexpr double kNarrationParticleGravity = 120.0;
 constexpr unsigned int kHoverNarrationChancePercent = 30;
 constexpr unsigned int kExactNarrationChancePercent = 15;
 constexpr UINT_PTR kAnimationTimerId = 1;
@@ -115,6 +118,7 @@ constexpr int kMoneyCoinDisplaySize = 32;
 constexpr int kMoneyTextGap = 8;
 constexpr int kMoneyTextWidth = 120;
 constexpr int kMoneyFontHeight = 24;
+constexpr long long kInitialDailyRevenueGoal = 800;
 struct CustomerCategoryReward {
     const wchar_t* id;
     int baseReward;
@@ -161,15 +165,33 @@ constexpr double kNightStartSeconds = 162.0;
 constexpr double kBusinessClosingCharacterSeconds = 0.3;
 constexpr double kBusinessClosingHoldSeconds = 1.0;
 constexpr double kBusinessClosingFadeSeconds = 0.5;
+constexpr wchar_t kBusinessClosingText[] = L"영업 종료...";
 constexpr double kReceiptSlideSeconds = 0.5;
 constexpr double kSettlementButtonDelaySeconds = 0.5;
 constexpr double kSettlementButtonFadeSeconds = 0.5;
+constexpr int kReceiptWidth = 360;
+constexpr int kFinalReceiptWidth = 520;
+constexpr int kReceiptHeight = 470;
+constexpr int kReceiptTargetY = (kDesignHeight - kReceiptHeight) / 2;
+constexpr int kNextDayButtonWidth = 110;
+constexpr int kNextDayButtonHeight = 36;
+constexpr int kNextDayButtonGap = 12;
 constexpr double kNarrationAppearanceDelaySeconds = 0.5;
 constexpr double kNarrationFadeInSeconds = 0.5;
 constexpr wchar_t kOwnedMoneyCoinImagePath[] =
     L"ui\\owned_money_coin.png";
 constexpr wchar_t kEarnedMoneyCoinImagePath[] =
     L"ui\\earned_money_coin.png";
+constexpr wchar_t kObjectiveImagePath[] = L"ui\\objective.png";
+constexpr wchar_t kTrophyImagePath[] = L"ui\\trophy.png";
+constexpr int kObjectiveImageSourceSize = 16;
+constexpr int kTrophyImageSourceSize = 32;
+constexpr int kTrophyImageDisplaySize = kTrophyImageSourceSize * 2;
+constexpr int kTrophyImageX = kPlayAreaX + 12;
+constexpr int kTrophyImageY = kPlayAreaY + 72;
+constexpr int kTrophyTooltipGap = 12;
+constexpr int kTrophyTooltipPadding = 8;
+constexpr double kTrophyTooltipFontHeight = 15.0;
 constexpr int kExitDialogWidth = 300;
 constexpr int kExitDialogHeight = 200;
 constexpr int kExitDialogButtonWidth = 80;
@@ -283,6 +305,11 @@ long long gEarnedMoney = 0;
 long long gDayRevenue = 0;
 long long gDayMenuRevenue[3]{};
 int gCurrentDay = 1;
+long long gDailyRevenueGoal = kInitialDailyRevenueGoal;
+bool gCurrentDayGoalMet = false;
+int gDailyGoalFailureCount = 0;
+bool gIsFinalSettlement = false;
+std::vector<long long> gDailyRevenueHistory;
 ULONGLONG gDayStartTime = 0;
 ULONGLONG gBusinessClosingStartTime = 0;
 ULONGLONG gSettlementStartTime = 0;
@@ -332,21 +359,35 @@ struct StarParticle {
 };
 std::vector<StarParticle> gStarParticles;
 ULONGLONG gLastStarParticleUpdateTime = 0;
+struct NarrationParticle {
+    double x;
+    double y;
+    double velocityX;
+    double velocityY;
+    int size;
+};
+std::vector<NarrationParticle> gNarrationParticles;
+ULONGLONG gLastNarrationParticleUpdateTime = 0;
+size_t gNarrationParticleProcessedLength = 0;
+bool gIsNarrationOverflowAnimating = false;
 unsigned int gRandomState = 0x144u;
 double gResetButtonOpacity = 0.0;
 bool gIsNarrationActive = false;
 bool gIsNarrationTyping = false;
 ULONGLONG gNarrationStartTime = 0;
 size_t gNarrationVisibleLength = 0;
+ULONGLONG gNarrationCompletedTime = 0;
 ULONGLONG gAfterCookingNarrationCompletedTime = 0;
 struct DialogueTree {
     std::wstring menuId;
+    std::wstring menuName;
     std::wstring id;
     std::vector<std::wstring> entryLines;
     std::vector<std::wstring> additionalLines;
     std::vector<std::wstring> afterCookingLines;
     std::vector<std::wstring> afterCooking70PercentLines;
     std::vector<std::wstring> afterCooking50PercentLines;
+    std::vector<std::wstring> afterCooking0PercentLines;
     std::vector<std::wstring> emptySubmissionLines;
     struct RecipeIngredient {
         int materialIndex;
@@ -374,13 +415,18 @@ struct DialogueCategory {
 enum class DialogueStage {
     Entry,
     Additional,
-    Hover,
     AfterCooking
 };
 std::vector<std::wstring> gNarrationNames;
 std::vector<DialogueCategory> gDialogueCategories;
 std::wstring gCurrentNarrationName;
 std::wstring gCurrentNarrationText;
+std::wstring gPausedNarrationText;
+size_t gPausedNarrationVisibleLength = 0;
+bool gPausedNarrationWasActive = false;
+bool gPausedNarrationWasTyping = false;
+bool gIsHoverNarrationActive = false;
+bool gWasNarrationRestoredFromHover = false;
 int gCurrentDialogueCategory = -1;
 int gCurrentDialogueTree = -1;
 DialogueStage gCurrentDialogueStage = DialogueStage::Entry;
@@ -395,6 +441,8 @@ ULONG_PTR gGdiplusToken = 0;
 Gdiplus::Image* gMaterialImages[kMaterialBinCount]{};
 Gdiplus::Image* gOwnedMoneyCoinImage = nullptr;
 Gdiplus::Image* gEarnedMoneyCoinImage = nullptr;
+Gdiplus::Image* gObjectiveImage = nullptr;
+Gdiplus::Image* gTrophyImage = nullptr;
 enum class NpcPart {
     BackHair,
     Bottom,
@@ -764,9 +812,15 @@ bool LoadNarrationData() {
             if (!ParseJsonString(menuJson, menuIdPosition, menuId)) {
                 return false;
             }
+            size_t menuNamePosition = FindJsonProperty(menuJson, "name");
+            std::string menuName;
+            if (!ParseJsonString(menuJson, menuNamePosition, menuName)) {
+                return false;
+            }
 
             DialogueTree tree;
             tree.menuId = Utf8ToWide(menuId);
+            tree.menuName = Utf8ToWide(menuName);
 
             const size_t ingredientsStart = FindJsonProperty(
                 menuJson, "ingredients");
@@ -860,6 +914,9 @@ bool LoadNarrationData() {
                 || !parseRequiredLines(
                     "IV_afterCooking50Percent",
                     tree.afterCooking50PercentLines)
+                || !parseRequiredLines(
+                    "IV_afterCooking0Percent",
+                    tree.afterCooking0PercentLines)
                 || !parseRequiredLines(
                     "V_emptySubmission", tree.emptySubmissionLines)) {
                 return false;
@@ -955,6 +1012,8 @@ Gdiplus::Image* LoadOptionalImage(const wchar_t* relativePath) {
 void LoadMoneyImages() {
     gOwnedMoneyCoinImage = LoadOptionalImage(kOwnedMoneyCoinImagePath);
     gEarnedMoneyCoinImage = LoadOptionalImage(kEarnedMoneyCoinImagePath);
+    gObjectiveImage = LoadOptionalImage(kObjectiveImagePath);
+    gTrophyImage = LoadOptionalImage(kTrophyImagePath);
 }
 
 void LoadNpcImages() {
@@ -980,6 +1039,10 @@ void UnloadMoneyImages() {
     gOwnedMoneyCoinImage = nullptr;
     delete gEarnedMoneyCoinImage;
     gEarnedMoneyCoinImage = nullptr;
+    delete gObjectiveImage;
+    gObjectiveImage = nullptr;
+    delete gTrophyImage;
+    gTrophyImage = nullptr;
 }
 
 void UnloadNpcImages() {
@@ -996,6 +1059,16 @@ struct Layout {
     int offsetX;
     int offsetY;
 };
+
+void DrawCenteredText(
+    HDC dc,
+    const Layout& layout,
+    const RECT& logicalArea,
+    const wchar_t* text,
+    double fontHeight,
+    COLORREF color,
+    int weight = FW_NORMAL,
+    const wchar_t* fontName = kDefaultUiFontName);
 
 Layout GetLayout(const RECT& client) {
     const int width = client.right - client.left;
@@ -1542,22 +1615,43 @@ void UpdateStarParticles(HWND window, ULONGLONG now) {
         gStarParticles.end());
 }
 
-RECT ResetButtonRect(const Layout& layout) {
-    return LogicalRect(
-        layout,
+RECT ResetButtonLogicalRect() {
+    return {
         kPlayAreaX + kPlayAreaSize - kResetButtonMargin - kResetButtonWidth,
         kPlayAreaY + kPlayAreaSize - kResetButtonMargin - kResetButtonHeight,
-        kResetButtonWidth,
-        kResetButtonHeight);
+        kPlayAreaX + kPlayAreaSize - kResetButtonMargin,
+        kPlayAreaY + kPlayAreaSize - kResetButtonMargin
+    };
+}
+
+RECT ResetButtonRect(const Layout& layout) {
+    const RECT logicalButton = ResetButtonLogicalRect();
+    return LogicalRect(
+        layout,
+        logicalButton.left,
+        logicalButton.top,
+        logicalButton.right - logicalButton.left,
+        logicalButton.bottom - logicalButton.top);
 }
 
 void DrawResetButton(HDC dc, const Layout& layout) {
+    const RECT logicalButton = ResetButtonLogicalRect();
     const RECT button = ResetButtonRect(layout);
     const int radius = static_cast<int>(
         std::lround(kResetButtonRadius * layout.scale));
     const COLORREF fadedColor = BlendColor(
         kPlatformColor, kResetButtonColor, gResetButtonOpacity);
     FillRoundedRect(dc, button, radius, fadedColor);
+    const COLORREF textColor = BlendColor(
+        kPlatformColor, RGB(0x18, 0x2a, 0x18), gResetButtonOpacity);
+    DrawCenteredText(
+        dc,
+        layout,
+        logicalButton,
+        L"조리 완료",
+        14.0,
+        textColor,
+        FW_BOLD);
 }
 
 void DrawGreenWalls(HDC dc, const Layout& layout) {
@@ -1656,11 +1750,18 @@ DialogueTree* CurrentDialogueTree() {
 }
 
 void StartNarrationText(const std::wstring& text) {
+    const ULONGLONG now = GetTickCount64();
     gCurrentNarrationText = text;
     gIsNarrationActive = true;
     gIsNarrationTyping = !text.empty();
-    gNarrationStartTime = GetTickCount64();
+    gNarrationStartTime = now;
     gNarrationVisibleLength = text.empty() ? 0 : 1;
+    gNarrationCompletedTime = text.empty() ? now : 0;
+    gWasNarrationRestoredFromHover = false;
+    gNarrationParticles.clear();
+    gNarrationParticleProcessedLength = 0;
+    gLastNarrationParticleUpdateTime = now;
+    gIsNarrationOverflowAnimating = false;
 }
 
 void StartRandomLine(const std::vector<std::wstring>& lines) {
@@ -1671,9 +1772,11 @@ void StartRandomLine(const std::vector<std::wstring>& lines) {
 }
 
 bool IsSocketNearMaterial(int socketIndex, int materialIndex);
+bool IsCookingStateActive();
 
 void RollHoverDialogueAvailability(DialogueTree& tree) {
     tree.nearbySlotDialogues.clear();
+    const bool alwaysShowExactHover = tree.menuName == L"all_ingredient";
     for (DialogueTree::HoverDialogue& hover : tree.hoverDialogues) {
         hover.nearbyEnabled.clear();
         hover.exactEnabled.clear();
@@ -1683,7 +1786,8 @@ void RollHoverDialogueAvailability(DialogueTree& tree) {
         }
         for (size_t index = 0; index < hover.exactLines.size(); ++index) {
             hover.exactEnabled.push_back(
-                NextRandom() % 100 < kExactNarrationChancePercent);
+                alwaysShowExactHover
+                || NextRandom() % 100 < kExactNarrationChancePercent);
         }
     }
 
@@ -1767,19 +1871,90 @@ void StartDialogueLine(
     StartNarrationText(lines[lineIndex]);
 }
 
-void EnterHoverDialogueStage(bool interruptedAdditionalDialogue) {
-    DialogueTree* tree = CurrentDialogueTree();
-    if (tree == nullptr || gCurrentDialogueStage == DialogueStage::Hover) {
+void ClearHoverNarrationInterruption() {
+    gPausedNarrationText.clear();
+    gPausedNarrationVisibleLength = 0;
+    gPausedNarrationWasActive = false;
+    gPausedNarrationWasTyping = false;
+    gIsHoverNarrationActive = false;
+    gWasNarrationRestoredFromHover = false;
+}
+
+void StartHoverNarrationText(const std::wstring& text) {
+    if (!gIsHoverNarrationActive) {
+        gPausedNarrationText = gCurrentNarrationText;
+        gPausedNarrationVisibleLength = gNarrationVisibleLength;
+        gPausedNarrationWasActive = gIsNarrationActive;
+        gPausedNarrationWasTyping = gIsNarrationTyping;
+    }
+    gIsHoverNarrationActive = true;
+    StartNarrationText(text);
+}
+
+void ResumeInterruptedNarration() {
+    if (!gIsHoverNarrationActive) {
         return;
     }
-    gCurrentDialogueStage = DialogueStage::Hover;
+
+    const ULONGLONG now = GetTickCount64();
+    gCurrentNarrationText = gPausedNarrationText;
+    gIsNarrationActive = gPausedNarrationWasActive;
+    gNarrationVisibleLength = (std::min)(
+        gPausedNarrationVisibleLength,
+        gCurrentNarrationText.size());
+    gIsNarrationTyping = gPausedNarrationWasTyping
+        && gNarrationVisibleLength < gCurrentNarrationText.size();
+    if (gIsNarrationTyping) {
+        const size_t completedCharacterIntervals =
+            gNarrationVisibleLength > 0
+                ? gNarrationVisibleLength - 1
+                : 0;
+        gNarrationStartTime = now
+            - completedCharacterIntervals
+                * kNarrationCharacterIntervalMilliseconds;
+        gNarrationCompletedTime = 0;
+    } else {
+        gNarrationStartTime = now;
+        gNarrationCompletedTime = gIsNarrationActive ? now : 0;
+    }
+    ClearHoverNarrationInterruption();
+    gWasNarrationRestoredFromHover = true;
+    gNarrationParticles.clear();
+    gNarrationParticleProcessedLength = gNarrationVisibleLength;
+    gLastNarrationParticleUpdateTime = now;
+    gIsNarrationOverflowAnimating = false;
+}
+
+void PrepareHoverDialogues() {
+    DialogueTree* tree = CurrentDialogueTree();
+    if (tree == nullptr) {
+        return;
+    }
     gLastNarrationHoverSocket = -1;
     RollHoverDialogueAvailability(*tree);
-    if (interruptedAdditionalDialogue) {
-        StartNarrationText(L"아직 주문 안 끝났는데?!");
-    } else {
-        StartNarrationText(L"");
+}
+
+int SelectRandomDialogueCategoryIndex() {
+    int normalCategory = -1;
+    std::vector<int> otherCategories;
+    for (size_t index = 0; index < gDialogueCategories.size(); ++index) {
+        if (gDialogueCategories[index].id == L"normal") {
+            normalCategory = static_cast<int>(index);
+        } else {
+            otherCategories.push_back(static_cast<int>(index));
+        }
     }
+
+    const unsigned int normalChance = gCurrentDay <= 2
+        ? 50u
+        : (gCurrentDay <= 4 ? 30u : 0u);
+    if (normalCategory >= 0 && NextRandom() % 100 < normalChance) {
+        return normalCategory;
+    }
+    if (!otherCategories.empty()) {
+        return otherCategories[NextRandom() % otherCategories.size()];
+    }
+    return normalCategory;
 }
 
 void StartRandomDialogueTree() {
@@ -1788,8 +1963,10 @@ void StartRandomDialogueTree() {
     }
     gCurrentNarrationName =
         gNarrationNames[NextRandom() % gNarrationNames.size()];
-    gCurrentDialogueCategory = static_cast<int>(
-        NextRandom() % gDialogueCategories.size());
+    gCurrentDialogueCategory = SelectRandomDialogueCategoryIndex();
+    if (gCurrentDialogueCategory < 0) {
+        return;
+    }
     const DialogueCategory& category =
         gDialogueCategories[gCurrentDialogueCategory];
     gCurrentDialogueTree = static_cast<int>(
@@ -1797,6 +1974,7 @@ void StartRandomDialogueTree() {
     gCurrentDialogueStage = DialogueStage::Entry;
     gCurrentDialogueLineIndex = 0;
     gLastNarrationHoverSocket = -1;
+    ClearHoverNarrationInterruption();
     gHasCookingResult = false;
     gWasEmptySubmission = false;
     gAfterCookingNarrationCompletedTime = 0;
@@ -1813,6 +1991,10 @@ void StartRandomDialogueTree() {
 void CompleteNarrationTyping(ULONGLONG now) {
     gNarrationVisibleLength = gCurrentNarrationText.size();
     gIsNarrationTyping = false;
+    gNarrationCompletedTime = now;
+    gNarrationParticles.clear();
+    gNarrationParticleProcessedLength = gNarrationVisibleLength;
+    gIsNarrationOverflowAnimating = false;
     if (gNpcOrderState == NpcOrderState::Ordering
         && gCurrentDialogueStage == DialogueStage::Entry) {
         gNpcOrderState = NpcOrderState::AfterOrder;
@@ -1831,15 +2013,24 @@ void AdvanceNarration() {
     if (!gIsNarrationActive) {
         return;
     }
-    if (gIsNarrationTyping) {
-        CompleteNarrationTyping(GetTickCount64());
+    if (gIsHoverNarrationActive) {
+        ResumeInterruptedNarration();
         return;
     }
+    const bool advanceRestoredLine = gWasNarrationRestoredFromHover;
+    if (gIsNarrationTyping) {
+        CompleteNarrationTyping(GetTickCount64());
+        if (!advanceRestoredLine) {
+            return;
+        }
+    }
+    gWasNarrationRestoredFromHover = false;
 
     DialogueTree* tree = CurrentDialogueTree();
     if (tree == nullptr) {
         return;
     }
+    gNarrationCompletedTime = 0;
     if (gCurrentDialogueStage == DialogueStage::Entry) {
         gCurrentDialogueStage = DialogueStage::Additional;
         gCurrentDialogueLineIndex = 0;
@@ -1864,10 +2055,9 @@ bool IsSocketNearMaterial(int socketIndex, int materialIndex) {
 }
 
 void TryStartHoverNarration(int hoveredSocket) {
-    if (gCurrentDialogueStage != DialogueStage::Hover
+    if (!IsCookingStateActive()
         || hoveredSocket < 0
-        || hoveredSocket == gLastNarrationHoverSocket
-        || gIsNarrationTyping) {
+        || hoveredSocket == gLastNarrationHoverSocket) {
         return;
     }
     gLastNarrationHoverSocket = hoveredSocket;
@@ -1890,7 +2080,7 @@ void TryStartHoverNarration(int hoveredSocket) {
                 return slot.socketIndex == hoveredSocket;
             });
         if (nearby != tree->nearbySlotDialogues.end()) {
-            StartNarrationText(nearby->line);
+            StartHoverNarrationText(nearby->line);
         }
         return;
     }
@@ -1912,33 +2102,50 @@ void TryStartHoverNarration(int hoveredSocket) {
         }
     }
     if (!exactCandidates.empty()) {
-        StartNarrationText(
+        StartHoverNarrationText(
             *exactCandidates[NextRandom() % exactCandidates.size()]);
     }
 }
 
 struct CookingEvaluation {
     bool exactRecipe = false;
+    bool sequenceCorrect = true;
     int materialCountDifference = 0;
     int materialTypeDifference = 0;
-    int sequenceDifference = 0;
-    int matchPercent = 0;
+    int errorCount = 0;
     long long reward = 0;
 };
 
 constexpr long long CalculateCookingReward(
     int baseReward,
-    int matchPercent,
-    bool exactRecipe) {
-    const int multiplierTenths = exactRecipe
-        ? 11
-        : (matchPercent >= 70 ? 5 : 3);
+    int errorCount) {
+    const int multiplierTenths = errorCount == 0
+        ? 10
+        : (errorCount == 1 ? 7 : (errorCount == 2 ? 5 : 0));
     return static_cast<long long>(baseReward) * multiplierTenths / 10;
 }
 
-static_assert(CalculateCookingReward(200, 100, true) == 220);
-static_assert(CalculateCookingReward(200, 70, false) == 100);
-static_assert(CalculateCookingReward(200, 50, false) == 60);
+static_assert(CalculateCookingReward(200, 0) == 200);
+static_assert(CalculateCookingReward(200, 1) == 140);
+static_assert(CalculateCookingReward(200, 2) == 100);
+static_assert(CalculateCookingReward(200, 3) == 0);
+
+constexpr long long CalculateSequenceErrorReward(int baseReward) {
+    return static_cast<long long>(baseReward) / 10;
+}
+
+static_assert(CalculateSequenceErrorReward(200) == 20);
+
+constexpr long long CalculateNextDailyRevenueGoal(
+    long long currentGoal,
+    bool goalMet) {
+    const int multiplierTenths = goalMet ? 11 : 12;
+    return (currentGoal * multiplierTenths + 5) / 10;
+}
+
+static_assert(CalculateNextDailyRevenueGoal(800, true) == 880);
+static_assert(CalculateNextDailyRevenueGoal(880, true) == 968);
+static_assert(CalculateNextDailyRevenueGoal(800, false) == 960);
 
 int CurrentOrderBaseReward() {
     if (gCurrentDialogueCategory < 0
@@ -1963,21 +2170,48 @@ CookingEvaluation EvaluateCurrentRecipe() {
     if (tree == nullptr || tree->recipe.empty()) {
         return evaluation;
     }
+    if (gMaterialCloneCount == 0) {
+        return evaluation;
+    }
+
+    const bool requiresExactSequence =
+        gDialogueCategories[gCurrentDialogueCategory].id
+            == L"sequence_obsessed";
+    if (requiresExactSequence) {
+        std::vector<int> expectedMaterialOrder;
+        for (const DialogueTree::RecipeIngredient& ingredient : tree->recipe) {
+            expectedMaterialOrder.push_back(ingredient.materialIndex);
+        }
+
+        std::vector<int> actualMaterialOrder;
+        for (int index = 0; index < gMaterialCloneCount; ++index) {
+            const int materialIndex = gMaterialClones[index].materialIndex;
+            if (actualMaterialOrder.empty()
+                || actualMaterialOrder.back() != materialIndex) {
+                actualMaterialOrder.push_back(materialIndex);
+            }
+        }
+
+        evaluation.sequenceCorrect =
+            actualMaterialOrder == expectedMaterialOrder;
+        if (!evaluation.sequenceCorrect) {
+            evaluation.errorCount = 1;
+            evaluation.reward = CalculateSequenceErrorReward(
+                CurrentOrderBaseReward());
+            return evaluation;
+        }
+    }
+
     int actualCounts[kMaterialBinCount]{};
     int expectedCounts[kMaterialBinCount]{};
-    int actualTotal = 0;
-    int expectedTotal = 0;
-    int matchedTotal = 0;
     for (int index = 0; index < gMaterialCloneCount; ++index) {
         const int materialIndex = gMaterialClones[index].materialIndex;
         if (materialIndex >= 0 && materialIndex < kMaterialBinCount) {
             ++actualCounts[materialIndex];
-            ++actualTotal;
         }
     }
     for (const DialogueTree::RecipeIngredient& ingredient : tree->recipe) {
         expectedCounts[ingredient.materialIndex] += ingredient.quantity;
-        expectedTotal += ingredient.quantity;
     }
     evaluation.exactRecipe = true;
     for (int index = 0; index < kMaterialBinCount; ++index) {
@@ -1989,52 +2223,12 @@ CookingEvaluation EvaluateCurrentRecipe() {
         }
         evaluation.materialCountDifference += std::abs(
             actualCounts[index] - expectedCounts[index]);
-        matchedTotal += (std::min)(actualCounts[index], expectedCounts[index]);
     }
 
-    const bool requiresExactSequence =
-        gDialogueCategories[gCurrentDialogueCategory].id
-            == L"sequence_obsessed";
-    if (requiresExactSequence) {
-        std::vector<int> expectedSequence;
-        for (const DialogueTree::RecipeIngredient& ingredient : tree->recipe) {
-            expectedSequence.insert(
-                expectedSequence.end(),
-                static_cast<size_t>(ingredient.quantity),
-                ingredient.materialIndex);
-        }
-        const size_t commonCount = (std::min)(
-            expectedSequence.size(),
-            static_cast<size_t>(gMaterialCloneCount));
-        for (size_t index = 0; index < commonCount; ++index) {
-            if (gMaterialClones[index].materialIndex
-                != expectedSequence[index]) {
-                ++evaluation.sequenceDifference;
-            }
-        }
-        evaluation.sequenceDifference += static_cast<int>(
-            expectedSequence.size() > static_cast<size_t>(gMaterialCloneCount)
-                ? expectedSequence.size() - gMaterialCloneCount
-                : gMaterialCloneCount - expectedSequence.size());
-        evaluation.exactRecipe = evaluation.exactRecipe
-            && evaluation.sequenceDifference == 0;
-    }
-
-    matchedTotal = (std::max)(0, matchedTotal - evaluation.sequenceDifference);
-    const int comparisonTotal = (std::max)(actualTotal, expectedTotal);
-    evaluation.matchPercent = comparisonTotal == 0
-        ? 0
-        : matchedTotal * 100 / comparisonTotal;
-
-    if (gMaterialCloneCount == 0) {
-        evaluation.exactRecipe = false;
-        evaluation.reward = 0;
-        return evaluation;
-    }
+    evaluation.errorCount = evaluation.materialCountDifference;
     evaluation.reward = CalculateCookingReward(
         CurrentOrderBaseReward(),
-        evaluation.matchPercent,
-        evaluation.exactRecipe);
+        evaluation.errorCount);
     return evaluation;
 }
 
@@ -2053,17 +2247,21 @@ void FinishCookingOrder() {
     if (gCurrentDialogueTree >= 0 && gCurrentDialogueTree < 3) {
         gDayMenuRevenue[gCurrentDialogueTree] += evaluation.reward;
     }
-    gCookingMistakeCount += evaluation.materialCountDifference
-        + evaluation.sequenceDifference;
+    gCookingMistakeCount += evaluation.errorCount;
     gHasCookingResult = true;
     gCurrentDialogueStage = DialogueStage::AfterCooking;
     gNpcOrderState = NpcOrderState::AfterOrder;
+    ClearHoverNarrationInterruption();
     const std::vector<std::wstring>* reactionLines = &tree->afterCookingLines;
     if (gWasEmptySubmission) {
         reactionLines = &tree->emptySubmissionLines;
-    } else if (evaluation.matchPercent < 70) {
+    } else if (!evaluation.sequenceCorrect) {
+        reactionLines = &tree->afterCooking0PercentLines;
+    } else if (evaluation.errorCount >= 3) {
+        reactionLines = &tree->afterCooking0PercentLines;
+    } else if (evaluation.errorCount == 2) {
         reactionLines = &tree->afterCooking50PercentLines;
-    } else if (!evaluation.exactRecipe) {
+    } else if (evaluation.errorCount == 1) {
         reactionLines = &tree->afterCooking70PercentLines;
     }
     StartRandomLine(*reactionLines);
@@ -2147,6 +2345,8 @@ void StartNextNpcEntrance(ULONGLONG now) {
     gIsNarrationTyping = false;
     gNarrationStartTime = 0;
     gNarrationVisibleLength = 0;
+    gNarrationCompletedTime = 0;
+    ClearHoverNarrationInterruption();
     gNarrationFadeStartTime = 0;
     gIsNarrationBoxInteractive = false;
     gAfterCookingNarrationCompletedTime = 0;
@@ -2157,10 +2357,18 @@ void StartNextNpcEntrance(ULONGLONG now) {
 }
 
 void StartBusinessClosing(ULONGLONG now) {
+    gCurrentDayGoalMet = gDayRevenue >= gDailyRevenueGoal;
+    gDailyRevenueHistory.push_back(gDayRevenue);
+    if (!gCurrentDayGoalMet) {
+        ++gDailyGoalFailureCount;
+    }
+    gIsFinalSettlement = gDailyGoalFailureCount >= 2;
     gScreenState = ScreenState::BusinessClosing;
     gBusinessClosingStartTime = now;
     gIsNarrationActive = false;
     gIsNarrationTyping = false;
+    gNarrationCompletedTime = 0;
+    ClearHoverNarrationInterruption();
     gIsNarrationBoxInteractive = false;
     gNarrationFadeStartTime = 0;
     gMaterialCloneCount = 0;
@@ -2176,6 +2384,9 @@ void StartSettlement(ULONGLONG now) {
 }
 
 void StartNextDay(ULONGLONG now) {
+    gDailyRevenueGoal = CalculateNextDailyRevenueGoal(
+        gDailyRevenueGoal,
+        gCurrentDayGoalMet);
     ++gCurrentDay;
     gDayRevenue = 0;
     for (long long& revenue : gDayMenuRevenue) {
@@ -2194,6 +2405,68 @@ RECT NarrationBoxRect(const Layout& layout) {
         kNarrationBoxY,
         kNarrationBoxWidth,
         kNarrationBoxHeight);
+}
+
+void AddNarrationParticle(double x, double y) {
+    if (gNarrationParticles.size() >= kMaximumNarrationParticles) {
+        gNarrationParticles.erase(gNarrationParticles.begin());
+    }
+    gNarrationParticles.push_back({
+        x,
+        y,
+        static_cast<double>(RandomRange(-18, 18)),
+        -static_cast<double>(RandomRange(25, 55)),
+        RandomRange(1, 2)
+    });
+}
+
+void UpdateNarrationParticles(ULONGLONG now) {
+    if (gLastNarrationParticleUpdateTime == 0) {
+        gLastNarrationParticleUpdateTime = now;
+    }
+    const double elapsed = (std::min)(
+        0.05,
+        (now - gLastNarrationParticleUpdateTime) / 1000.0);
+    gLastNarrationParticleUpdateTime = now;
+    for (NarrationParticle& particle : gNarrationParticles) {
+        particle.x += particle.velocityX * elapsed;
+        particle.y += particle.velocityY * elapsed;
+        particle.velocityY += kNarrationParticleGravity * elapsed;
+    }
+    gNarrationParticles.erase(
+        std::remove_if(
+            gNarrationParticles.begin(),
+            gNarrationParticles.end(),
+            [](const NarrationParticle& particle) {
+                return particle.y > kDesignHeight + particle.size;
+            }),
+        gNarrationParticles.end());
+}
+
+void DrawNarrationParticles(HDC dc, const Layout& layout) {
+    RECT clip{};
+    if (GetClipBox(dc, &clip) == ERROR) {
+        return;
+    }
+    for (const NarrationParticle& particle : gNarrationParticles) {
+        const POINT topLeft = LogicalPoint(layout, particle.x, particle.y);
+        const int size = (std::max)(
+            1,
+            static_cast<int>(std::lround(particle.size * layout.scale)));
+        const RECT square{
+            topLeft.x,
+            topLeft.y,
+            topLeft.x + size,
+            topLeft.y + size
+        };
+        if (square.right <= clip.left
+            || square.left >= clip.right
+            || square.bottom <= clip.top
+            || square.top >= clip.bottom) {
+            continue;
+        }
+        FillSolid(dc, square, RGB(0xff, 0xff, 0xff));
+    }
 }
 
 void DrawNarration(HDC dc, const Layout& layout) {
@@ -2237,7 +2510,7 @@ void DrawNarration(HDC dc, const Layout& layout) {
         static_cast<int>(gCurrentNarrationName.size()));
 
     const int dialogueFontHeight = (std::max)(
-        1, static_cast<int>(std::lround(24.0 * layout.scale)));
+        1, static_cast<int>(std::lround(22.0 * layout.scale)));
     HFONT dialogueFont = CreateFont(
         -dialogueFontHeight,
         0,
@@ -2262,12 +2535,77 @@ void DrawNarration(HDC dc, const Layout& layout) {
         layout,
         kNarrationBoxX + 24,
         kNarrationBoxY + 62);
-    TextOut(
+    SIZE fullTextSize{};
+    GetTextExtentPoint32(
         dc,
-        textPosition.x,
-        textPosition.y,
         gCurrentNarrationText.c_str(),
-        static_cast<int>(gNarrationVisibleLength));
+        static_cast<int>(gCurrentNarrationText.size()),
+        &fullTextSize);
+    const RECT narrationBox = NarrationBoxRect(layout);
+    const int textRightEdge = narrationBox.right
+        - static_cast<int>(std::lround(24.0 * layout.scale));
+    const bool shouldAnimateOverflow = gIsNarrationTyping
+        && textPosition.x + fullTextSize.cx > textRightEdge;
+    gIsNarrationOverflowAnimating = shouldAnimateOverflow;
+
+    if (!shouldAnimateOverflow) {
+        gNarrationParticles.clear();
+        gNarrationParticleProcessedLength = gNarrationVisibleLength;
+        TextOut(
+            dc,
+            textPosition.x,
+            textPosition.y,
+            gCurrentNarrationText.c_str(),
+            static_cast<int>(gNarrationVisibleLength));
+    } else {
+        RECT clip{};
+        GetClipBox(dc, &clip);
+        const ULONGLONG now = GetTickCount64();
+        int characterX = textPosition.x;
+        const size_t visibleLength = (std::min)(
+            gNarrationVisibleLength,
+            gCurrentNarrationText.size());
+        const size_t firstNewCharacter = (std::min)(
+            gNarrationParticleProcessedLength,
+            visibleLength);
+        for (size_t index = 0; index < visibleLength; ++index) {
+            if (characterX
+                > clip.right + static_cast<int>(std::ceil(layout.scale))) {
+                break;
+            }
+            const wchar_t character = gCurrentNarrationText[index];
+            SIZE characterSize{};
+            GetTextExtentPoint32(dc, &character, 1, &characterSize);
+
+            if (index >= firstNewCharacter) {
+                const double particleX = (
+                    characterX + characterSize.cx - layout.offsetX)
+                    / layout.scale;
+                const double particleY = kNarrationBoxY + 62.0 + 18.0;
+                AddNarrationParticle(particleX, particleY);
+            }
+
+            unsigned int jitterSeed = static_cast<unsigned int>(
+                now / 40 + index * 0x9e3779b9u);
+            jitterSeed ^= jitterSeed >> 16;
+            const int jitterX = static_cast<int>(jitterSeed % 3) - 1;
+            jitterSeed = jitterSeed * 1664525u + 1013904223u;
+            const int jitterY = static_cast<int>(jitterSeed % 3) - 1;
+            const int drawX = characterX + static_cast<int>(std::lround(
+                jitterX * layout.scale));
+            const int drawY = textPosition.y + static_cast<int>(std::lround(
+                jitterY * layout.scale));
+            if (drawX + characterSize.cx > clip.left
+                && drawX < clip.right
+                && drawY + dialogueFontHeight > clip.top
+                && drawY < clip.bottom) {
+                TextOut(dc, drawX, drawY, &character, 1);
+            }
+            characterX += characterSize.cx;
+        }
+        gNarrationParticleProcessedLength = visibleLength;
+        DrawNarrationParticles(dc, layout);
+    }
     SetTextColor(dc, oldTextColor);
     SetBkMode(dc, oldBackgroundMode);
     SelectObject(dc, oldFont);
@@ -2319,8 +2657,8 @@ void DrawCenteredText(
     const wchar_t* text,
     double fontHeight,
     COLORREF color,
-    int weight = FW_NORMAL,
-    const wchar_t* fontName = kDefaultUiFontName) {
+    int weight,
+    const wchar_t* fontName) {
     const HFONT font = CreateUiFont(layout, fontHeight, weight, fontName);
     const HGDIOBJ oldFont = SelectObject(dc, font);
     const int oldBackgroundMode = SetBkMode(dc, TRANSPARENT);
@@ -2439,6 +2777,18 @@ RECT MoneyUiRect() {
     };
 }
 
+RECT ObjectiveUiRect() {
+    const RECT moneyArea = MoneyUiRect();
+    const int right = kPlayAreaX + kPlayAreaSize - kMoneyUiMargin;
+    const int width = moneyArea.right - moneyArea.left;
+    return {
+        right - width,
+        moneyArea.top,
+        right,
+        moneyArea.bottom
+    };
+}
+
 RECT StartBusinessButtonRect() {
     const int right = kPlayAreaX + kPlayAreaSize - kMoneyUiMargin;
     const int top = kPlayAreaY + kMoneyUiMargin;
@@ -2519,6 +2869,57 @@ void DrawMoneyInterface(
     });
 }
 
+void DrawObjectiveInterface(HDC dc, const Layout& layout) {
+    const RECT logicalArea = ObjectiveUiRect();
+    const RECT iconArea = LogicalRect(
+        layout,
+        logicalArea.right - kMoneyCoinDisplaySize,
+        logicalArea.top,
+        kMoneyCoinDisplaySize,
+        kMoneyCoinDisplaySize);
+    if (gObjectiveImage != nullptr) {
+        Gdiplus::Graphics graphics(dc);
+        graphics.SetInterpolationMode(Gdiplus::InterpolationModeNearestNeighbor);
+        graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
+        graphics.DrawImage(
+            gObjectiveImage,
+            Gdiplus::Rect(
+                iconArea.left,
+                iconArea.top,
+                iconArea.right - iconArea.left,
+                iconArea.bottom - iconArea.top),
+            0,
+            0,
+            kObjectiveImageSourceSize,
+            kObjectiveImageSourceSize,
+            Gdiplus::UnitPixel);
+    } else {
+        FillSolid(dc, iconArea, kCoinPlaceholderColor);
+    }
+
+    RECT textArea = LogicalRect(
+        layout,
+        logicalArea.left,
+        logicalArea.top,
+        kMoneyTextWidth,
+        kMoneyCoinDisplaySize);
+    const std::wstring amount = std::to_wstring(gDailyRevenueGoal);
+    const HFONT font = CreateUiFont(layout, kMoneyFontHeight, FW_BOLD);
+    const HGDIOBJ oldFont = SelectObject(dc, font);
+    const int oldBackgroundMode = SetBkMode(dc, TRANSPARENT);
+    const COLORREF oldTextColor = SetTextColor(dc, RGB(0x2a, 0x2a, 0x2a));
+    DrawText(
+        dc,
+        amount.c_str(),
+        -1,
+        &textArea,
+        DT_RIGHT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+    SetTextColor(dc, oldTextColor);
+    SetBkMode(dc, oldBackgroundMode);
+    SelectObject(dc, oldFont);
+    DeleteObject(font);
+}
+
 void DrawStartBusinessButton(HDC dc, const Layout& layout, BYTE opacity) {
     const RECT logicalButton = StartBusinessButtonRect();
     const RECT button = LogicalRect(
@@ -2579,6 +2980,12 @@ void DrawPreparationSequenceUi(HDC dc, const Layout& layout) {
         DrawMoneyInterface(dc, layout, true, 255);
         DrawStartBusinessButton(dc, layout, 255);
     } else if (gScreenState == ScreenState::Countdown) {
+        if (gCurrentDay > 1) {
+            DrawMoneyInterface(dc, layout, false, 255);
+            DrawObjectiveInterface(dc, layout);
+            DrawCountdown(dc, layout);
+            return;
+        }
         const double elapsed = (
             GetTickCount64() - gPreparationSequenceStartTime) / 1000.0;
         const double uiTransitionSeconds = kPreparationUiFadeSeconds * 2.0;
@@ -2616,10 +3023,40 @@ void DrawPreparationSequenceUi(HDC dc, const Layout& layout) {
         || gScreenState == ScreenState::EmptySubmissionReacting) {
         DrawMoneyInterface(dc, layout, false, 255);
     }
+
+    if (gScreenState == ScreenState::Countdown
+        || gScreenState == ScreenState::NpcEntering
+        || gScreenState == ScreenState::NarrationStarting
+        || gScreenState == ScreenState::Game
+        || gScreenState == ScreenState::EmptySubmissionReacting
+        || gScreenState == ScreenState::NpcExiting) {
+        DrawObjectiveInterface(dc, layout);
+    }
+}
+
+RECT ReceiptTargetRect() {
+    const int width = gIsFinalSettlement
+        ? kFinalReceiptWidth
+        : kReceiptWidth;
+    const int left = (kDesignWidth - width) / 2;
+    return {
+        left,
+        kReceiptTargetY,
+        left + width,
+        kReceiptTargetY + kReceiptHeight
+    };
 }
 
 RECT NextDayButtonRect() {
-    return {500, 535, 610, 571};
+    const RECT receipt = ReceiptTargetRect();
+    const int left = (kDesignWidth - kNextDayButtonWidth) / 2;
+    const int top = receipt.bottom + kNextDayButtonGap;
+    return {
+        left,
+        top,
+        left + kNextDayButtonWidth,
+        top + kNextDayButtonHeight
+    };
 }
 
 std::wstring FormatMoney(long long value) {
@@ -2633,8 +3070,8 @@ std::wstring FormatMoney(long long value) {
 }
 
 void DrawBusinessClosing(HDC dc, const Layout& layout) {
-    constexpr wchar_t text[] = L"영업 종료!";
-    constexpr size_t textLength = (sizeof(text) / sizeof(text[0])) - 1;
+    constexpr size_t textLength =
+        (sizeof(kBusinessClosingText) / sizeof(kBusinessClosingText[0])) - 1;
     const double elapsed = (
         GetTickCount64() - gBusinessClosingStartTime) / 1000.0;
     const size_t visibleLength = (std::min)(
@@ -2647,7 +3084,7 @@ void DrawBusinessClosing(HDC dc, const Layout& layout) {
             (elapsed - typingSeconds - kBusinessClosingHoldSeconds)
                 / kBusinessClosingFadeSeconds);
     }
-    const std::wstring visibleText(text, visibleLength);
+    const std::wstring visibleText(kBusinessClosingText, visibleLength);
     const RECT area{
         kPlayAreaX,
         kPlayAreaY + kPlayAreaSize / 2 - 60,
@@ -2672,14 +3109,14 @@ void DrawSettlement(HDC dc, const Layout& layout) {
     const double elapsed = (
         GetTickCount64() - gSettlementStartTime) / 1000.0;
     const double slideProgress = SmoothStep(elapsed / kReceiptSlideSeconds);
-    constexpr int receiptX = 270;
-    constexpr int receiptTargetY = 80;
-    constexpr int receiptWidth = 360;
-    constexpr int receiptHeight = 470;
+    const RECT targetReceipt = ReceiptTargetRect();
+    const int receiptX = targetReceipt.left;
+    const int receiptWidth = targetReceipt.right - targetReceipt.left;
     const int receiptY = static_cast<int>(std::lround(
-        kDesignHeight + (receiptTargetY - kDesignHeight) * slideProgress));
+        kDesignHeight
+            + (targetReceipt.top - kDesignHeight) * slideProgress));
     const RECT receipt = LogicalRect(
-        layout, receiptX, receiptY, receiptWidth, receiptHeight);
+        layout, receiptX, receiptY, receiptWidth, kReceiptHeight);
     FillSolid(dc, receipt, kReceiptColor);
 
     auto drawReceiptLine = [&](
@@ -2688,12 +3125,13 @@ void DrawSettlement(HDC dc, const Layout& layout) {
         int y,
         int width,
         UINT alignment,
-        int fontHeight = 24) {
+        int fontHeight = 24,
+        int areaHeight = 32) {
         const HFONT font = CreateUiFont(layout, fontHeight, FW_BOLD);
         const HGDIOBJ oldFont = SelectObject(dc, font);
         const int oldMode = SetBkMode(dc, TRANSPARENT);
         const COLORREF oldColor = SetTextColor(dc, kReceiptTextColor);
-        RECT lineArea = LogicalRect(layout, x, y, width, 32);
+        RECT lineArea = LogicalRect(layout, x, y, width, areaHeight);
         DrawText(
             dc, value.c_str(), -1, &lineArea,
             alignment | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
@@ -2703,35 +3141,114 @@ void DrawSettlement(HDC dc, const Layout& layout) {
         DeleteObject(font);
     };
 
-    drawReceiptLine(
-        L"DAY " + std::to_wstring(gCurrentDay) + L" 매출",
-        receiptX + 24, receiptY + 45, receiptWidth - 48, DT_LEFT, 28);
-    constexpr wchar_t menuLabels[3][16] = {
-        L"기본랩", L"에그마요랩", L"김밥"
-    };
-    int lineY = receiptY + 105;
-    for (int index = 0; index < 3; ++index) {
-        if (gDayMenuRevenue[index] == 0) {
-            continue;
-        }
-        drawReceiptLine(menuLabels[index], receiptX + 24, lineY, 190, DT_LEFT);
+    if (gIsFinalSettlement) {
         drawReceiptLine(
-            FormatMoney(gDayMenuRevenue[index]),
-            receiptX + 210, lineY, receiptWidth - 234, DT_RIGHT);
-        lineY += 42;
+            L"최종 영수증",
+            receiptX + 24,
+            receiptY + 35,
+            receiptWidth - 48,
+            DT_CENTER,
+            30);
+
+        const int dayCount = static_cast<int>(gDailyRevenueHistory.size());
+        const int columnCount = dayCount > 10 ? 2 : 1;
+        const int rowsPerColumn = (std::max)(
+            1,
+            (dayCount + columnCount - 1) / columnCount);
+        const int availableHeight = kReceiptHeight - 180;
+        const int lineHeight = (std::max)(
+            14,
+            (std::min)(28, availableHeight / rowsPerColumn));
+        const int lineFontHeight = (std::max)(10, lineHeight - 5);
+        const int contentWidth = receiptWidth - 48;
+        const int columnWidth = contentWidth / columnCount;
+        for (int index = 0; index < dayCount; ++index) {
+            const int column = index / rowsPerColumn;
+            const int row = index % rowsPerColumn;
+            drawReceiptLine(
+                L"Day" + std::to_wstring(index + 1)
+                    + L"   " + FormatMoney(gDailyRevenueHistory[index]),
+                receiptX + 24 + column * columnWidth,
+                receiptY + 85 + row * lineHeight,
+                columnWidth - 8,
+                DT_LEFT,
+                lineFontHeight,
+                lineHeight);
+        }
+
+        FillSolid(
+            dc,
+            LogicalRect(
+                layout,
+                receiptX + 24,
+                receiptY + kReceiptHeight - 80,
+                receiptWidth - 48,
+                2),
+            kReceiptTextColor);
+        drawReceiptLine(
+            L"총 매출액",
+            receiptX + 24,
+            receiptY + kReceiptHeight - 58,
+            180,
+            DT_LEFT,
+            26);
+        drawReceiptLine(
+            FormatMoney(gEarnedMoney),
+            receiptX + 204,
+            receiptY + kReceiptHeight - 58,
+            receiptWidth - 228,
+            DT_RIGHT,
+            26);
+    } else {
+        drawReceiptLine(
+            L"DAY " + std::to_wstring(gCurrentDay) + L" 매출",
+            receiptX + 24,
+            receiptY + 45,
+            receiptWidth - 48,
+            DT_LEFT,
+            28);
+        constexpr wchar_t menuLabels[3][16] = {
+            L"기본랩", L"에그마요랩", L"김밥"
+        };
+        int lineY = receiptY + 105;
+        for (int index = 0; index < 3; ++index) {
+            if (gDayMenuRevenue[index] == 0) {
+                continue;
+            }
+            drawReceiptLine(
+                menuLabels[index], receiptX + 24, lineY, 190, DT_LEFT);
+            drawReceiptLine(
+                FormatMoney(gDayMenuRevenue[index]),
+                receiptX + 210,
+                lineY,
+                receiptWidth - 234,
+                DT_RIGHT);
+            lineY += 42;
+        }
+        FillSolid(
+            dc,
+            LogicalRect(
+                layout,
+                receiptX + 24,
+                receiptY + kReceiptHeight - 95,
+                receiptWidth - 48,
+                2),
+            kReceiptTextColor);
+        drawReceiptLine(
+            L"총 매출액",
+            receiptX + 24,
+            receiptY + kReceiptHeight - 70,
+            160,
+            DT_LEFT,
+            26);
+        drawReceiptLine(
+            FormatMoney(gDayRevenue),
+            receiptX + 180,
+            receiptY + kReceiptHeight - 70,
+            receiptWidth - 204,
+            DT_RIGHT,
+            26);
     }
-    FillSolid(
-        dc,
-        LogicalRect(
-            layout, receiptX + 24, receiptY + receiptHeight - 95,
-            receiptWidth - 48, 2),
-        kReceiptTextColor);
-    drawReceiptLine(
-        L"총 매출액", receiptX + 24,
-        receiptY + receiptHeight - 70, 160, DT_LEFT, 26);
-    drawReceiptLine(
-        FormatMoney(gDayRevenue), receiptX + 180,
-        receiptY + receiptHeight - 70, receiptWidth - 204, DT_RIGHT, 26);
 
     const double buttonElapsed = elapsed
         - kReceiptSlideSeconds - kSettlementButtonDelaySeconds;
@@ -2752,7 +3269,10 @@ void DrawSettlement(HDC dc, const Layout& layout) {
             [&](HDC targetDc) {
                 FillRoundedRect(targetDc, button, 8, kResetButtonColor);
                 DrawCenteredText(
-                    targetDc, layout, logicalButton, L"다음 날로",
+                    targetDc,
+                    layout,
+                    logicalButton,
+                    gIsFinalSettlement ? L"메인화면" : L"다음날로",
                     20.0, RGB(0x18, 0x2a, 0x18), FW_BOLD);
             });
     }
@@ -3047,9 +3567,41 @@ void StartPreparationScreenTransition() {
     if (!IsTitleInteractive() || gIsExitDialogVisible) {
         return;
     }
+    gEarnedMoney = 0;
+    gDayRevenue = 0;
+    for (long long& revenue : gDayMenuRevenue) {
+        revenue = 0;
+    }
+    gCurrentDay = 1;
+    gDailyRevenueGoal = kInitialDailyRevenueGoal;
+    gCurrentDayGoalMet = false;
+    gDailyGoalFailureCount = 0;
+    gIsFinalSettlement = false;
+    gDailyRevenueHistory.clear();
+    gDayStartTime = 0;
+    gCookingMistakeCount = 0;
     gScreenState = ScreenState::TitleFadingOut;
     gScreenTransitionStartTime = GetTickCount64();
     gHoveredTitleButton = -1;
+}
+
+void ReturnToMainScreen(ULONGLONG now) {
+    gOwnedMoney += gEarnedMoney * 5 / 100;
+    gScreenState = ScreenState::Title;
+    gTitleStartTime = now;
+    gHoveredTitleButton = -1;
+    gIsExitDialogVisible = false;
+    gIsNarrationActive = false;
+    gIsNarrationTyping = false;
+    gIsNarrationBoxInteractive = false;
+    gNarrationFadeStartTime = 0;
+    gMaterialCloneCount = 0;
+    gStarParticles.clear();
+    gNarrationParticles.clear();
+    gCookingState = CookingState::NonCooking;
+    gIsCookingTransitionRunning = false;
+    gTableLift = 0.0;
+    gIsFinalSettlement = false;
 }
 
 void StartCookingTransition(CookingState targetState) {
@@ -3279,6 +3831,102 @@ void DrawNpc(HDC dc, const Layout& layout) {
     }
 }
 
+RECT TrophyLogicalRect() {
+    return {
+        kTrophyImageX,
+        kTrophyImageY,
+        kTrophyImageX + kTrophyImageDisplaySize,
+        kTrophyImageY + kTrophyImageDisplaySize
+    };
+}
+
+void DrawTrophy(HDC dc, const Layout& layout) {
+    const RECT logicalArea = TrophyLogicalRect();
+    const RECT area = LogicalRect(
+        layout,
+        logicalArea.left,
+        logicalArea.top,
+        logicalArea.right - logicalArea.left,
+        logicalArea.bottom - logicalArea.top);
+    if (gTrophyImage != nullptr) {
+        Gdiplus::Graphics graphics(dc);
+        graphics.SetInterpolationMode(Gdiplus::InterpolationModeNearestNeighbor);
+        graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
+        graphics.DrawImage(
+            gTrophyImage,
+            Gdiplus::Rect(
+                area.left,
+                area.top,
+                area.right - area.left,
+                area.bottom - area.top),
+            0,
+            0,
+            kTrophyImageSourceSize,
+            kTrophyImageSourceSize,
+            Gdiplus::UnitPixel);
+    }
+}
+
+void DrawTrophyTooltip(HDC dc, const Layout& layout) {
+    if (gScreenState != ScreenState::Game
+        || !gHasMousePosition
+        || !gIsTrackingMouse) {
+        return;
+    }
+    const RECT trophy = TrophyLogicalRect();
+    if (!PtInRect(&trophy, gMouseDesignPosition)) {
+        return;
+    }
+
+    constexpr wchar_t tooltipText[] =
+        L"왠지 이걸 사면 실수해도 괜찮을 것 같다.";
+    const HFONT font = CreateUiFont(
+        layout,
+        kTrophyTooltipFontHeight,
+        FW_NORMAL,
+        kDefaultUiFontName);
+    const HGDIOBJ oldFont = SelectObject(dc, font);
+    SIZE textSize{};
+    GetTextExtentPoint32(
+        dc,
+        tooltipText,
+        static_cast<int>(wcslen(tooltipText)),
+        &textSize);
+    SelectObject(dc, oldFont);
+    DeleteObject(font);
+
+    const int logicalTextWidth = static_cast<int>(
+        std::ceil(textSize.cx / layout.scale));
+    const int logicalTextHeight = static_cast<int>(
+        std::ceil(textSize.cy / layout.scale));
+    const int tooltipWidth = logicalTextWidth + kTrophyTooltipPadding * 2;
+    const int tooltipHeight = logicalTextHeight + kTrophyTooltipPadding * 2;
+    int tooltipX = gMouseDesignPosition.x + kTrophyTooltipGap;
+    int tooltipY = gMouseDesignPosition.y + kTrophyTooltipGap;
+    tooltipX = (std::min)(tooltipX, kDesignWidth - tooltipWidth);
+    tooltipY = (std::min)(tooltipY, kDesignHeight - tooltipHeight);
+    const RECT logicalTooltip{
+        tooltipX,
+        tooltipY,
+        tooltipX + tooltipWidth,
+        tooltipY + tooltipHeight
+    };
+    const RECT tooltip = LogicalRect(
+        layout,
+        logicalTooltip.left,
+        logicalTooltip.top,
+        tooltipWidth,
+        tooltipHeight);
+    FillSolid(dc, tooltip, RGB(0x2a, 0x2a, 0x2a));
+    DrawCenteredText(
+        dc,
+        layout,
+        logicalTooltip,
+        tooltipText,
+        kTrophyTooltipFontHeight,
+        RGB(0xff, 0xff, 0xff));
+}
+
 void DrawGame(HDC dc, const RECT& client) {
     FillSolid(dc, client, kLetterboxColor);
 
@@ -3290,6 +3938,7 @@ void DrawGame(HDC dc, const RECT& client) {
     const RECT playArea = LogicalRect(
         layout, kPlayAreaX, kPlayAreaY, kPlayAreaSize, kPlayAreaSize);
     DrawInterior(dc, layout);
+    DrawTrophy(dc, layout);
 
     // 체크 바닥은 정적 배경에 두어 유리돔 이동 중에도 장면이 이어지게 한다.
     const int floorDc = SaveDC(dc);
@@ -3397,6 +4046,7 @@ void DrawApplication(HDC dc, const RECT& client) {
 
     // 별 파티클은 플레이 영역의 클리핑이 끝난 뒤 그려 검은 여백에서도 보이게 한다.
     DrawStarParticles(dc, layout);
+    DrawTrophyTooltip(dc, layout);
 }
 
 void PaintWindow(HWND window) {
@@ -3501,6 +4151,9 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
             gIsTrackingMouse = true;
         }
         UpdateMouseCursor(window, mouseX, mouseY);
+        if (gScreenState == ScreenState::Game) {
+            InvalidateRect(window, nullptr, FALSE);
+        }
         return 0;
     }
     case WM_LBUTTONDOWN: {
@@ -3575,7 +4228,12 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
             if (elapsed >= kReceiptSlideSeconds
                     + kSettlementButtonDelaySeconds
                 && PtInRect(&nextDayButton, logicalMouse)) {
-                StartNextDay(GetTickCount64());
+                const ULONGLONG now = GetTickCount64();
+                if (gIsFinalSettlement) {
+                    ReturnToMainScreen(now);
+                } else {
+                    StartNextDay(now);
+                }
                 UpdateMouseCursor(window, mouseX, mouseY);
                 InvalidateRect(window, nullptr, FALSE);
             }
@@ -3603,10 +4261,7 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
             InvalidateRect(window, nullptr, FALSE);
         } else if (CanEnterCookingMode()
             && gIsTableHovered) {
-            const bool interruptedAdditionalDialogue =
-                gCurrentDialogueStage == DialogueStage::Additional
-                && gIsNarrationTyping;
-            EnterHoverDialogueStage(interruptedAdditionalDialogue);
+            PrepareHoverDialogues();
             StartCookingTransition(CookingState::Cooking);
         } else if (clickedClone >= 0) {
             RemoveMaterialClone(clickedClone);
@@ -3643,6 +4298,13 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
                 visualChanged = true;
             } else {
                 gLastStarParticleUpdateTime = now;
+            }
+
+            if (gIsNarrationTyping && gIsNarrationOverflowAnimating) {
+                UpdateNarrationParticles(now);
+                visualChanged = true;
+            } else {
+                gLastNarrationParticleUpdateTime = now;
             }
 
             if (gScreenState == ScreenState::Title
@@ -3752,7 +4414,9 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
                     }
                 }
             } else if (gScreenState == ScreenState::BusinessClosing) {
-                constexpr size_t closingTextLength = 6;
+                constexpr size_t closingTextLength =
+                    (sizeof(kBusinessClosingText)
+                        / sizeof(kBusinessClosingText[0])) - 1;
                 const double elapsed = (
                     now - gBusinessClosingStartTime) / 1000.0;
                 const double totalSeconds = closingTextLength
@@ -3811,6 +4475,17 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
                         CompleteNarrationTyping(now);
                     }
                 }
+            }
+
+            if (gScreenState == ScreenState::Game
+                && gIsNarrationBoxInteractive
+                && gIsNarrationActive
+                && !gIsNarrationTyping
+                && gNarrationCompletedTime != 0
+                && (now - gNarrationCompletedTime) / 1000.0
+                    >= kNarrationAutoAdvanceSeconds) {
+                AdvanceNarration();
+                visualChanged = true;
             }
 
             if (gScreenState == ScreenState::Game) {
