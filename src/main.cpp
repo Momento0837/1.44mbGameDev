@@ -1,12 +1,16 @@
 //#define NOMINMAX
 #include <windows.h>
 #include <windowsx.h>
+#include <mmsystem.h>
 #include <objidl.h>
 #include <gdiplus.h>
+
+#pragma comment(lib, "winmm.lib")
 
 #include <algorithm>
 #include <cmath>
 #include <cwchar>
+#include <cwctype>
 #include <fstream>
 #include <iterator>
 #include <limits>
@@ -106,11 +110,37 @@ constexpr unsigned int kExactNarrationChancePercent = 30;
 constexpr UINT_PTR kAnimationTimerId = 1;
 constexpr UINT kAnimationFrameMilliseconds = 16;
 
+// MP3 효과음: 같은 용도의 동작은 하나의 파일을 공유한다.
+constexpr wchar_t kPlayerClickSoundPath[] = L"sounds\\player_click.mp3";
+constexpr wchar_t kInteractionClickSoundPath[] = L"sounds\\interaction_click.mp3";
+constexpr wchar_t kButtonClickSoundPath[] = L"sounds\\button_click.mp3";
+constexpr wchar_t kCookingSuccessSoundPath[] = L"sounds\\cooking_success.mp3";
+constexpr wchar_t kCookingErrorOneSoundPath[] = L"sounds\\cooking_error_1.mp3";
+constexpr wchar_t kCookingErrorTwoPlusSoundPath[] = L"sounds\\cooking_error_2_plus.mp3";
+constexpr wchar_t kTrophyPurchaseSoundPath[] = L"sounds\\trophy_purchase.mp3";
+constexpr wchar_t kReceiptSoundPath[] = L"sounds\\tearing_papers1.mp3";
+constexpr wchar_t kNpcTalkingSoundPath[] = L"sounds\\NPC_talking.mp3";
+constexpr wchar_t kBusinessMusicPath[] = L"sounds\\business_music.mp3";
+constexpr double kMasterSoundOutputScale = 0.70;
+constexpr double kBusinessMusicFadeOutSeconds = 0.5;
+constexpr int kBusinessMusicFadeOutSteps = 10;
+constexpr int kOptionsBackButtonX = 20;
+constexpr int kOptionsBackButtonY = 20;
+constexpr int kOptionsBackButtonSize = 44;
+constexpr int kVolumeSliderLeft = 250;
+constexpr int kVolumeSliderRight = 550;
+constexpr int kVolumeSliderY = 330;
+constexpr int kVolumeSliderTrackHeight = 6;
+constexpr int kVolumeSliderKnobRadius = 10;
+
 // 타이틀 화면의 배치와 화면 전환 애니메이션 설정값이다.
 constexpr int kTitlePlaceholderWidth = 500;
 constexpr int kTitlePlaceholderHeight = 300;
 constexpr int kTitlePlaceholderY = 20;
-constexpr BYTE kTitlePlaceholderOpacity = 26;
+constexpr wchar_t kTitleImagePath[] = L"ui\\title.png";
+constexpr int kTitleImageSourceWidth = 144;
+constexpr int kTitleImageSourceHeight = 96;
+constexpr int kTitleImageIntegerScale = 3;
 constexpr double kTitleBreathingScale = 1.025;
 constexpr double kTitleBreathingSeconds = 3.2;
 constexpr double kTitleAppearanceDelaySeconds = 0.5;
@@ -214,6 +244,9 @@ constexpr int kTutorialContentLeft =
 constexpr int kTutorialCheckboxLeft = 22;
 constexpr int kTutorialCheckboxTop = 560;
 constexpr int kTutorialCheckboxSize = 10;
+constexpr double kPreGameMessageFadeSeconds = 1;
+constexpr double kPreGameMessageHoldSeconds = 2.0;
+constexpr double kPreGameMessageFontHeight = 20.0;
 constexpr int kExitDialogWidth = 300;
 constexpr int kExitDialogHeight = 200;
 constexpr int kExitDialogButtonWidth = 80;
@@ -247,7 +280,6 @@ constexpr COLORREF kTableBorderColor = RGB(0x42, 0x29, 0x10);
 constexpr COLORREF kCuttingBoardColor = RGB(0xb6, 0xa1, 0x8c);
 constexpr COLORREF kCuttingBoardBorderColor = RGB(0x7c, 0x65, 0x4e);
 constexpr COLORREF kResetButtonColor = RGB(0x94, 0xc2, 0x93);
-constexpr COLORREF kTitlePlaceholderColor = RGB(0x77, 0xcb, 0xe8);
 constexpr COLORREF kExitDialogColor = RGB(0x2a, 0x2a, 0x2a);
 constexpr COLORREF kExitYesButtonColor = RGB(0x94, 0xc2, 0x93);
 constexpr COLORREF kExitNoButtonColor = RGB(0xd9, 0x9a, 0x9a);
@@ -302,8 +334,10 @@ ULONGLONG gLastAnimationTickTime = 0;
 
 enum class ScreenState {
     Title,
+    Options,
     TitleFadingOut,
     Tutorial,
+    PreGameMessage,
     PreparationFadingIn,
     Preparation,
     Countdown,
@@ -322,6 +356,7 @@ int gHoveredTitleButton = -1;
 double gTitleButtonScales[3]{1.0, 1.0, 1.0};
 RECT gTitleButtonRects[3]{};
 bool gIsExitDialogVisible = false;
+bool gIsVolumeSliderDragging = false;
 ULONGLONG gPreparationSequenceStartTime = 0;
 ULONGLONG gNarrationFadeStartTime = 0;
 bool gIsNarrationBoxInteractive = false;
@@ -331,6 +366,8 @@ long long gOwnedMoney = 0;
 bool gIsTrophyPurchased = false;
 bool gSkipTutorial = false;
 ULONGLONG gTrophyInsufficientFundsStartTime = 0;
+ULONGLONG gPreGameMessageStartTime = 0;
+int gPreGameMessageIndex = 0;
 long long gEarnedMoney = 0;
 long long gDayRevenue = 0;
 long long gDayMenuRevenue[3]{};
@@ -412,6 +449,50 @@ size_t gNarrationParticleProcessedLength = 0;
 bool gIsNarrationOverflowAnimating = false;
 unsigned int gRandomState = 0x144u;
 double gResetButtonOpacity = 0.0;
+// 추후 옵션 화면에서 0.0(음소거)~1.0(최대) 범위로 연결할 전체 음량이다.
+double gMasterSoundVolume = 1.0;
+enum class SoundEffect {
+    PlayerClick,
+    InteractionClick,
+    ButtonClick,
+    CookingSuccess,
+    CookingErrorOne,
+    CookingErrorTwoPlus,
+    TrophyPurchase,
+    Receipt,
+    NpcTalking,
+    Count
+};
+struct SoundEffectPlayer {
+    const wchar_t* relativePath;
+    const wchar_t* alias;
+    bool isOpen;
+    double volumeScale;
+};
+SoundEffectPlayer gSoundEffects[] = {
+    {kPlayerClickSoundPath, L"sfx_player_click", false, 0.30},
+    {kInteractionClickSoundPath, L"sfx_interaction", false, 1.0},
+    {kButtonClickSoundPath, L"sfx_button", false, 1.0},
+    {kCookingSuccessSoundPath, L"sfx_cooking_success", false, 1.0},
+    {kCookingErrorOneSoundPath, L"sfx_cooking_error_1", false, 1.0},
+    {kCookingErrorTwoPlusSoundPath, L"sfx_cooking_error_2_plus", false, 1.0},
+    {kTrophyPurchaseSoundPath, L"sfx_trophy_purchase", false, 1.0},
+    {kReceiptSoundPath, L"sfx_receipt", false, 1.0},
+    {kNpcTalkingSoundPath, L"sfx_npc_talking", false, 0.10}
+};
+SoundEffectPlayer gBusinessMusic{
+    kBusinessMusicPath, L"bgm_business", false, 1.0};
+HWND gSoundNotificationWindow = nullptr;
+MCIDEVICEID gPlayerClickDeviceId = 0;
+bool gIsPlayerClickPrepared = false;
+bool gIsBusinessMusicPlaying = false;
+bool gIsBusinessMusicFadingOut = false;
+ULONGLONG gBusinessMusicFadeStartTime = 0;
+double gBusinessMusicVolumeScale = 1.0;
+int gBusinessMusicFadeStep = -1;
+void PlaySoundEffect(SoundEffect effect);
+void StartBusinessMusic();
+void BeginBusinessMusicFadeOut(ULONGLONG now);
 bool gIsNarrationActive = false;
 bool gIsNarrationTyping = false;
 ULONGLONG gNarrationStartTime = 0;
@@ -484,6 +565,7 @@ Gdiplus::Image* gOwnedMoneyCoinImage = nullptr;
 Gdiplus::Image* gEarnedMoneyCoinImage = nullptr;
 Gdiplus::Image* gObjectiveImage = nullptr;
 Gdiplus::Image* gTrophyImage = nullptr;
+Gdiplus::Image* gTitleImage = nullptr;
 Gdiplus::Bitmap* gTrophyShadowImage = nullptr;
 constexpr int kCompletedFoodImageCount = 6;
 Gdiplus::Image* gCompletedFoodImages[kCompletedFoodImageCount]{};
@@ -520,6 +602,11 @@ void LoadPlayerSave() {
         if (file >> savedSkipTutorial) {
             gSkipTutorial = savedSkipTutorial != 0;
         }
+        double savedMasterSoundVolume = 1.0;
+        if (file >> savedMasterSoundVolume) {
+            gMasterSoundVolume = std::clamp(
+                savedMasterSoundVolume, 0.0, 1.0);
+        }
     }
 }
 
@@ -528,7 +615,8 @@ void SavePlayerData() {
     if (file) {
         file << gOwnedMoney << '\n'
              << (gIsTrophyPurchased ? 1 : 0) << '\n'
-             << (gSkipTutorial ? 1 : 0) << '\n';
+             << (gSkipTutorial ? 1 : 0) << '\n'
+             << gMasterSoundVolume << '\n';
     }
 }
 enum class NpcPart {
@@ -1133,6 +1221,7 @@ void LoadMoneyImages() {
     gEarnedMoneyCoinImage = LoadOptionalImage(kEarnedMoneyCoinImagePath);
     gObjectiveImage = LoadOptionalImage(kObjectiveImagePath);
     gTrophyImage = LoadOptionalImage(kTrophyImagePath);
+    gTitleImage = LoadOptionalImage(kTitleImagePath);
     constexpr wchar_t completedFoodPaths[kCompletedFoodImageCount][40] = {
         L"materials\\kimbop.png",
         L"materials\\mintkimbop.png",
@@ -1237,6 +1326,8 @@ void UnloadMoneyImages() {
     gObjectiveImage = nullptr;
     delete gTrophyImage;
     gTrophyImage = nullptr;
+    delete gTitleImage;
+    gTitleImage = nullptr;
 }
 
 void UnloadNpcImages() {
@@ -2062,6 +2153,9 @@ void StartNarrationText(const std::wstring& text) {
     gIsNarrationTyping = !text.empty();
     gNarrationStartTime = now;
     gNarrationVisibleLength = text.empty() ? 0 : 1;
+    if (!text.empty() && !std::iswspace(text.front())) {
+        PlaySoundEffect(SoundEffect::NpcTalking);
+    }
     gNarrationCompletedTime = text.empty() ? now : 0;
     gWasNarrationRestoredFromHover = false;
     gNarrationParticles.clear();
@@ -2653,6 +2747,15 @@ void FinishCookingOrder() {
     ClearHoverNarrationInterruption();
     const std::vector<std::wstring>* reactionLines = &tree->afterCookingLines;
     const int rewardErrorCount = RewardErrorCount(evaluation.errorCount);
+    if (gWasEmptySubmission || !evaluation.sequenceCorrect) {
+        PlaySoundEffect(SoundEffect::CookingErrorTwoPlus);
+    } else if (rewardErrorCount == 0) {
+        PlaySoundEffect(SoundEffect::CookingSuccess);
+    } else if (rewardErrorCount == 1) {
+        PlaySoundEffect(SoundEffect::CookingErrorOne);
+    } else {
+        PlaySoundEffect(SoundEffect::CookingErrorTwoPlus);
+    }
     if (evaluation.sequenceCorrect && rewardErrorCount >= 3) {
         gOwnedMoney = (std::max)(0LL, gOwnedMoney - 50);
         SavePlayerData();
@@ -2762,6 +2865,7 @@ void StartNextNpcEntrance(ULONGLONG now) {
 }
 
 void StartBusinessClosing(ULONGLONG now) {
+    BeginBusinessMusicFadeOut(now);
     gCurrentDayGoalMet = gDayRevenue >= gDailyRevenueGoal;
     gDailyRevenueHistory.push_back(gDayRevenue);
     if (!gCurrentDayGoalMet) {
@@ -2786,6 +2890,7 @@ void StartBusinessClosing(ULONGLONG now) {
 void StartSettlement(ULONGLONG now) {
     gScreenState = ScreenState::Settlement;
     gSettlementStartTime = now;
+    PlaySoundEffect(SoundEffect::Receipt);
 }
 
 void StartNextDay(ULONGLONG now) {
@@ -3877,12 +3982,14 @@ void DrawTitleScreen(HDC dc, const RECT& client) {
     constexpr double pi = 3.14159265358979323846;
     const double breathingAmount = 0.5 - 0.5 * std::cos(
         breathingElapsed * 2.0 * pi / kTitleBreathingSeconds);
-    const double titleScale = 1.0
+    const double breathingScale = 1.0
         + (kTitleBreathingScale - 1.0) * breathingAmount;
-    const int titleWidth = static_cast<int>(
-        std::lround(kTitlePlaceholderWidth * titleScale));
-    const int titleHeight = static_cast<int>(
-        std::lround(kTitlePlaceholderHeight * titleScale));
+    const int titleWidth = static_cast<int>(std::lround(
+        kTitleImageSourceWidth * kTitleImageIntegerScale
+        * breathingScale));
+    const int titleHeight = static_cast<int>(std::lround(
+        kTitleImageSourceHeight * kTitleImageIntegerScale
+        * breathingScale));
     const int titleCenterX = kDesignWidth / 2;
     const int titleCenterY = kTitlePlaceholderY
         + kTitlePlaceholderHeight / 2;
@@ -3893,12 +4000,24 @@ void DrawTitleScreen(HDC dc, const RECT& client) {
         titleWidth,
         titleHeight);
 
-    // 실제 타이틀 PNG는 이 500x300 자리표시자 영역에 확대하여 출력한다.
-    FillTranslucent(
-        dc,
-        titleArea,
-        kTitlePlaceholderColor,
-        kTitlePlaceholderOpacity);
+    if (gTitleImage != nullptr) {
+        Gdiplus::Graphics graphics(dc);
+        graphics.SetInterpolationMode(
+            Gdiplus::InterpolationModeNearestNeighbor);
+        graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
+        graphics.DrawImage(
+            gTitleImage,
+            Gdiplus::Rect(
+                titleArea.left,
+                titleArea.top,
+                titleArea.right - titleArea.left,
+                titleArea.bottom - titleArea.top),
+            0,
+            0,
+            kTitleImageSourceWidth,
+            kTitleImageSourceHeight,
+            Gdiplus::UnitPixel);
+    }
 
     for (int index = 0; index < 3; ++index) {
         const double fontHeight = kTitleButtonFontHeight
@@ -4013,6 +4132,70 @@ bool IsCookingStateActive() {
     return gCookingState == CookingState::Cooking
         && !gIsCookingTransitionRunning
         && !gIsCompletionPresentationActive;
+}
+
+RECT OptionsBackButtonRect() {
+    return {
+        kOptionsBackButtonX,
+        kOptionsBackButtonY,
+        kOptionsBackButtonX + kOptionsBackButtonSize,
+        kOptionsBackButtonY + kOptionsBackButtonSize
+    };
+}
+
+RECT VolumeSliderHitRect() {
+    return {
+        kVolumeSliderLeft - kVolumeSliderKnobRadius,
+        kVolumeSliderY - kVolumeSliderKnobRadius * 2,
+        kVolumeSliderRight + kVolumeSliderKnobRadius,
+        kVolumeSliderY + kVolumeSliderKnobRadius * 2
+    };
+}
+
+void DrawOptionsScreen(HDC dc, const RECT& client) {
+    FillSolid(dc, client, kLetterboxColor);
+    if (client.right <= client.left || client.bottom <= client.top) {
+        return;
+    }
+    const Layout layout = GetLayout(client);
+    DrawCenteredText(
+        dc, layout, OptionsBackButtonRect(), L"<", 32.0,
+        RGB(0xff, 0xff, 0xff), FW_NORMAL, kTitleFontName);
+    const RECT titleArea{250, 240, 550, 290};
+    DrawCenteredText(
+        dc, layout, titleArea, L"전체 음량", 30.0,
+        RGB(0xff, 0xff, 0xff), FW_NORMAL, kTitleFontName);
+
+    FillSolid(
+        dc,
+        LogicalRect(
+            layout,
+            kVolumeSliderLeft,
+            kVolumeSliderY - kVolumeSliderTrackHeight / 2,
+            kVolumeSliderRight - kVolumeSliderLeft,
+            kVolumeSliderTrackHeight),
+        RGB(0x70, 0x70, 0x70));
+    const int knobX = kVolumeSliderLeft + static_cast<int>(std::lround(
+        (kVolumeSliderRight - kVolumeSliderLeft)
+        * std::clamp(gMasterSoundVolume, 0.0, 1.0)));
+    const RECT knob = LogicalRect(
+        layout,
+        knobX - kVolumeSliderKnobRadius,
+        kVolumeSliderY - kVolumeSliderKnobRadius,
+        kVolumeSliderKnobRadius * 2,
+        kVolumeSliderKnobRadius * 2);
+    const HBRUSH knobBrush = CreateSolidBrush(RGB(0xff, 0xff, 0xff));
+    const HGDIOBJ oldBrush = SelectObject(dc, knobBrush);
+    Ellipse(dc, knob.left, knob.top, knob.right, knob.bottom);
+    SelectObject(dc, oldBrush);
+    DeleteObject(knobBrush);
+
+    DrawCenteredText(
+        dc, layout, {220, 350, 280, 380}, L"0", 18.0,
+        RGB(0xff, 0xff, 0xff));
+    DrawCenteredText(
+        dc, layout, {520, 350, 580, 380}, L"100", 18.0,
+        RGB(0xff, 0xff, 0xff));
 }
 
 bool CanEnterCookingMode() {
@@ -4427,6 +4610,52 @@ RECT TutorialCheckboxRect() {
     };
 }
 
+void StartPreGameMessage(ULONGLONG now) {
+    gPreGameMessageIndex = static_cast<int>(NextRandom() % 2);
+    gPreGameMessageStartTime = now;
+    gScreenState = ScreenState::PreGameMessage;
+}
+
+void DrawPreGameMessage(HDC dc, const RECT& client) {
+    FillSolid(dc, client, kLetterboxColor);
+    if (client.right <= client.left || client.bottom <= client.top) {
+        return;
+    }
+    const double elapsed = (
+        GetTickCount64() - gPreGameMessageStartTime) / 1000.0;
+    const double fadeOutStart = kPreGameMessageFadeSeconds
+        + kPreGameMessageHoldSeconds;
+    double opacity = 1.0;
+    if (elapsed < kPreGameMessageFadeSeconds) {
+        opacity = SmoothStep(elapsed / kPreGameMessageFadeSeconds);
+    } else if (elapsed > fadeOutStart) {
+        opacity = 1.0 - SmoothStep(
+            (elapsed - fadeOutStart) / kPreGameMessageFadeSeconds);
+    }
+    constexpr wchar_t messages[2][32] = {
+        L"오늘은 어떤 진상이 올 것인가...",
+        L"정상적인 손님이 오시길..."
+    };
+    const Layout layout = GetLayout(client);
+    const RECT messageArea{
+        kPlayAreaX,
+        kPlayAreaY + kPlayAreaSize / 2 - 20,
+        kPlayAreaX + kPlayAreaSize,
+        kPlayAreaY + kPlayAreaSize / 2 + 20
+    };
+    const COLORREF textColor = BlendColor(
+        kLetterboxColor,
+        RGB(0xff, 0xff, 0xff),
+        opacity);
+    DrawCenteredText(
+        dc,
+        layout,
+        messageArea,
+        messages[gPreGameMessageIndex],
+        kPreGameMessageFontHeight,
+        textColor);
+}
+
 void DrawTutorialScreen(HDC dc, const RECT& client) {
     FillSolid(dc, client, kLetterboxColor);
     if (client.right <= client.left || client.bottom <= client.top) {
@@ -4628,8 +4857,16 @@ void DrawApplication(HDC dc, const RECT& client) {
         DrawTitleScreen(dc, client);
         return;
     }
+    if (gScreenState == ScreenState::Options) {
+        DrawOptionsScreen(dc, client);
+        return;
+    }
     if (gScreenState == ScreenState::Tutorial) {
         DrawTutorialScreen(dc, client);
+        return;
+    }
+    if (gScreenState == ScreenState::PreGameMessage) {
+        DrawPreGameMessage(dc, client);
         return;
     }
 
@@ -4747,8 +4984,196 @@ void PaintWindow(HWND window) {
     EndPaint(window, &paint);
 }
 
+void SetSoundPlayerVolume(
+    const SoundEffectPlayer& sound,
+    double volumeScale) {
+    if (!sound.isOpen) {
+        return;
+    }
+    const int volume = static_cast<int>(std::lround(
+        std::clamp(
+            gMasterSoundVolume * kMasterSoundOutputScale
+                * sound.volumeScale * volumeScale,
+            0.0,
+            1.0)
+        * 1000.0));
+    const std::wstring command = L"setaudio "
+        + std::wstring(sound.alias) + L" volume to "
+        + std::to_wstring(volume);
+    mciSendStringW(command.c_str(), nullptr, 0, nullptr);
+}
+
+void ApplyMasterSoundVolume() {
+    for (const SoundEffectPlayer& sound : gSoundEffects) {
+        SetSoundPlayerVolume(sound, 1.0);
+    }
+    SetSoundPlayerVolume(gBusinessMusic, gBusinessMusicVolumeScale);
+}
+
+void OpenSoundPlayer(SoundEffectPlayer& sound) {
+    const std::wstring absolutePath = gAssetsDirectory
+        + sound.relativePath;
+    if (GetFileAttributesW(absolutePath.c_str())
+        == INVALID_FILE_ATTRIBUTES) {
+        return;
+    }
+    const std::wstring command = L"open \"" + absolutePath
+        + L"\" type mpegvideo alias " + sound.alias;
+    sound.isOpen = mciSendStringW(
+        command.c_str(), nullptr, 0, nullptr) == 0;
+}
+
+void PreparePlayerClickSound() {
+    SoundEffectPlayer& sound = gSoundEffects[
+        static_cast<size_t>(SoundEffect::PlayerClick)];
+    if (!sound.isOpen) {
+        return;
+    }
+    const std::wstring seekCommand = L"seek "
+        + std::wstring(sound.alias) + L" to start";
+    mciSendStringW(seekCommand.c_str(), nullptr, 0, nullptr);
+    const std::wstring cueCommand = L"cue "
+        + std::wstring(sound.alias) + L" output";
+    gIsPlayerClickPrepared = mciSendStringW(
+        cueCommand.c_str(), nullptr, 0, nullptr) == 0;
+}
+
+void InitializeSoundSystem(HWND notificationWindow) {
+    gSoundNotificationWindow = notificationWindow;
+    for (SoundEffectPlayer& sound : gSoundEffects) {
+        OpenSoundPlayer(sound);
+    }
+    OpenSoundPlayer(gBusinessMusic);
+    ApplyMasterSoundVolume();
+    SoundEffectPlayer& clickSound = gSoundEffects[
+        static_cast<size_t>(SoundEffect::PlayerClick)];
+    if (clickSound.isOpen) {
+        gPlayerClickDeviceId = mciGetDeviceIDW(clickSound.alias);
+        PreparePlayerClickSound();
+    }
+}
+
+void ShutdownSoundSystem() {
+    for (SoundEffectPlayer& sound : gSoundEffects) {
+        if (sound.isOpen) {
+            const std::wstring command = L"close "
+                + std::wstring(sound.alias);
+            mciSendStringW(command.c_str(), nullptr, 0, nullptr);
+            sound.isOpen = false;
+        }
+    }
+    if (gBusinessMusic.isOpen) {
+        const std::wstring command = L"close "
+            + std::wstring(gBusinessMusic.alias);
+        mciSendStringW(command.c_str(), nullptr, 0, nullptr);
+        gBusinessMusic.isOpen = false;
+    }
+    gSoundNotificationWindow = nullptr;
+    gPlayerClickDeviceId = 0;
+    gIsPlayerClickPrepared = false;
+}
+
+void PlaySoundEffect(SoundEffect effect) {
+    const size_t index = static_cast<size_t>(effect);
+    if (gMasterSoundVolume <= 0.0
+        || index >= std::size(gSoundEffects)
+        || !gSoundEffects[index].isOpen) {
+        return;
+    }
+    if (effect == SoundEffect::PlayerClick && gIsPlayerClickPrepared) {
+        const std::wstring command = L"play "
+            + std::wstring(gSoundEffects[index].alias) + L" notify";
+        gIsPlayerClickPrepared = false;
+        mciSendStringW(
+            command.c_str(), nullptr, 0, gSoundNotificationWindow);
+    } else {
+        const std::wstring command = L"play "
+            + std::wstring(gSoundEffects[index].alias) + L" from 0"
+            + (effect == SoundEffect::PlayerClick ? L" notify" : L"");
+        mciSendStringW(
+            command.c_str(),
+            nullptr,
+            0,
+            effect == SoundEffect::PlayerClick
+                ? gSoundNotificationWindow
+                : nullptr);
+    }
+}
+
+void StartBusinessMusic() {
+    if (gIsBusinessMusicPlaying
+        || !gBusinessMusic.isOpen
+        || gMasterSoundVolume <= 0.0) {
+        return;
+    }
+    gBusinessMusicVolumeScale = 1.0;
+    gIsBusinessMusicFadingOut = false;
+    SetSoundPlayerVolume(gBusinessMusic, 1.0);
+    const std::wstring command = L"play "
+        + std::wstring(gBusinessMusic.alias) + L" from 0 repeat";
+    mciSendStringW(command.c_str(), nullptr, 0, nullptr);
+    gIsBusinessMusicPlaying = true;
+}
+
+void BeginBusinessMusicFadeOut(ULONGLONG now) {
+    if (!gIsBusinessMusicPlaying) {
+        return;
+    }
+    gIsBusinessMusicFadingOut = true;
+    gBusinessMusicFadeStartTime = now;
+    gBusinessMusicFadeStep = -1;
+}
+
+void UpdateBusinessMusicFadeOut(ULONGLONG now) {
+    if (!gIsBusinessMusicFadingOut) {
+        return;
+    }
+    const double progress = std::clamp(
+        (now - gBusinessMusicFadeStartTime)
+            / (kBusinessMusicFadeOutSeconds * 1000.0),
+        0.0,
+        1.0);
+    const int fadeStep = static_cast<int>(std::floor(
+        progress * kBusinessMusicFadeOutSteps));
+    if (fadeStep != gBusinessMusicFadeStep) {
+        gBusinessMusicFadeStep = fadeStep;
+        gBusinessMusicVolumeScale = 1.0
+            - static_cast<double>(fadeStep)
+                / kBusinessMusicFadeOutSteps;
+        SetSoundPlayerVolume(
+            gBusinessMusic, gBusinessMusicVolumeScale);
+    }
+    if (progress >= 1.0) {
+        const std::wstring command = L"stop "
+            + std::wstring(gBusinessMusic.alias);
+        mciSendStringW(command.c_str(), nullptr, 0, nullptr);
+        gIsBusinessMusicPlaying = false;
+        gIsBusinessMusicFadingOut = false;
+    }
+}
+
+void UpdateMasterVolumeFromSlider(int designX) {
+    const double position = std::clamp(
+        static_cast<double>(designX - kVolumeSliderLeft)
+            / (kVolumeSliderRight - kVolumeSliderLeft),
+        0.0,
+        1.0);
+    const double newVolume = std::lround(position * 100.0) / 100.0;
+    if (newVolume != gMasterSoundVolume) {
+        gMasterSoundVolume = newVolume;
+        ApplyMasterSoundVolume();
+    }
+}
+
 LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARAM lParam) {
     switch (message) {
+    case MM_MCINOTIFY:
+        if (wParam == MCI_NOTIFY_SUCCESSFUL
+            && static_cast<MCIDEVICEID>(lParam)
+                == gPlayerClickDeviceId) {
+            PreparePlayerClickSound();
+        }
+        return 0;
     case WM_SETCURSOR:
         if (LOWORD(lParam) == HTCLIENT) {
             POINT cursor{};
@@ -4800,6 +5225,12 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
             gIsTableHovered = false;
         }
 
+        if (gScreenState == ScreenState::Options
+            && gIsVolumeSliderDragging) {
+            UpdateMasterVolumeFromSlider(gMouseDesignPosition.x);
+            InvalidateRect(window, nullptr, FALSE);
+        }
+
         if (!gIsTrackingMouse) {
             TRACKMOUSEEVENT tracking{};
             tracking.cbSize = sizeof(tracking);
@@ -4841,6 +5272,86 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
             && playY <= kPlayAreaSize;
 
         const POINT logicalMouse{designX, designY};
+        SoundEffect clickSound = SoundEffect::PlayerClick;
+        bool deferClickSoundToAction = false;
+        if (gScreenState == ScreenState::Options) {
+            const RECT backButton = OptionsBackButtonRect();
+            const RECT slider = VolumeSliderHitRect();
+            if (PtInRect(&backButton, logicalMouse)
+                || PtInRect(&slider, logicalMouse)) {
+                clickSound = SoundEffect::ButtonClick;
+            }
+        } else {
+            const RECT trophyForSound = TrophyLogicalRect();
+            if (gScreenState != ScreenState::Title
+                && gScreenState != ScreenState::TitleFadingOut
+                && PtInRect(&trophyForSound, logicalMouse)
+                && !gIsTrophyPurchased
+                && gOwnedMoney >= kTrophyPrice) {
+                deferClickSoundToAction = true;
+            } else if (gScreenState == ScreenState::Title
+                && IsTitleInteractive()) {
+                bool clickedButton = HitTestTitleButton(
+                    designX, designY) >= 0;
+                if (gIsExitDialogVisible) {
+                    const RECT yesButton = ExitDialogButtonRect(true);
+                    const RECT noButton = ExitDialogButtonRect(false);
+                    clickedButton = PtInRect(&yesButton, logicalMouse)
+                        || PtInRect(&noButton, logicalMouse);
+                }
+                if (clickedButton) {
+                    clickSound = SoundEffect::ButtonClick;
+                }
+            } else if (gScreenState == ScreenState::Preparation) {
+                const RECT startButton = StartBusinessButtonRect();
+                if (PtInRect(&startButton, logicalMouse)) {
+                    clickSound = SoundEffect::ButtonClick;
+                }
+            } else if (gScreenState == ScreenState::Settlement) {
+                const double elapsed = (
+                    GetTickCount64() - gSettlementStartTime) / 1000.0;
+                const RECT nextDayButton = NextDayButtonRect();
+                if (elapsed >= kReceiptSlideSeconds
+                        + kSettlementButtonDelaySeconds
+                    && PtInRect(&nextDayButton, logicalMouse)) {
+                    clickSound = SoundEffect::ButtonClick;
+                }
+            } else if (gScreenState == ScreenState::Game) {
+                const RECT resetButtonForSound = ResetButtonRect(layout);
+                if (IsCookingStateActive()
+                    && PtInRect(&resetButtonForSound, {mouseX, mouseY})) {
+                    deferClickSoundToAction = true;
+                } else {
+                    const int clickedCloneForSound =
+                        HitTestMaterialClone(designX, designY);
+                    const int clickedSocketForSound = HitTestPngSocket();
+                    if (clickedCloneForSound >= 0
+                        || (!gIsCookingTransitionRunning
+                            && gCookingState == CookingState::Cooking
+                            && clickedSocketForSound >= 0)) {
+                        clickSound = SoundEffect::InteractionClick;
+                    }
+                }
+            }
+        }
+        if (!deferClickSoundToAction) {
+            PlaySoundEffect(clickSound);
+        }
+        if (gScreenState == ScreenState::Options) {
+            const RECT backButton = OptionsBackButtonRect();
+            const RECT slider = VolumeSliderHitRect();
+            if (PtInRect(&backButton, logicalMouse)) {
+                gScreenState = ScreenState::Title;
+                gTitleStartTime = GetTickCount64();
+                SavePlayerData();
+            } else if (PtInRect(&slider, logicalMouse)) {
+                gIsVolumeSliderDragging = true;
+                SetCapture(window);
+                UpdateMasterVolumeFromSlider(designX);
+            }
+            InvalidateRect(window, nullptr, FALSE);
+            return 0;
+        }
         if (gScreenState == ScreenState::Tutorial) {
             const RECT checkbox = TutorialCheckboxRect();
             const RECT checkboxHitArea{
@@ -4853,10 +5364,12 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
                 gSkipTutorial = !gSkipTutorial;
                 SavePlayerData();
             } else {
-                gScreenState = ScreenState::PreparationFadingIn;
-                gScreenTransitionStartTime = GetTickCount64();
+                StartPreGameMessage(GetTickCount64());
             }
             InvalidateRect(window, nullptr, FALSE);
+            return 0;
+        }
+        if (gScreenState == ScreenState::PreGameMessage) {
             return 0;
         }
         const RECT trophy = TrophyLogicalRect();
@@ -4869,6 +5382,7 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
                     gIsTrophyPurchased = true;
                     gTrophyInsufficientFundsStartTime = 0;
                     SavePlayerData();
+                    PlaySoundEffect(SoundEffect::TrophyPurchase);
                 } else {
                     gTrophyFeedbackTooltipAnchorPosition =
                         gTrophyTooltipAnchorPosition;
@@ -4901,10 +5415,13 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
                 designX,
                 designY);
             if (clickedTitleButton == 0) {
+                StartBusinessMusic();
                 StartPreparationScreenTransition();
                 InvalidateRect(window, nullptr, FALSE);
             } else if (clickedTitleButton == 1) {
-                // 옵션 기능은 사운드 시스템을 추가할 때 이 위치에 연결한다.
+                gScreenState = ScreenState::Options;
+                gHoveredTitleButton = -1;
+                InvalidateRect(window, nullptr, FALSE);
             } else if (clickedTitleButton == 2) {
                 gIsExitDialogVisible = true;
                 gHoveredTitleButton = -1;
@@ -4989,6 +5506,13 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
         }
         return 0;
     }
+    case WM_LBUTTONUP:
+        if (gIsVolumeSliderDragging) {
+            gIsVolumeSliderDragging = false;
+            ReleaseCapture();
+            SavePlayerData();
+        }
+        return 0;
     case WM_MOUSELEAVE:
         gIsTrackingMouse = false;
         gIsTrophyHovered = false;
@@ -5004,6 +5528,7 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
             bool visualChanged = false;
             const ULONGLONG now = GetTickCount64();
             gLastAnimationTickTime = now;
+            UpdateBusinessMusicFadeOut(now);
 
             if (gIsTrophyHovered
                 && gTrophyInsufficientFundsStartTime != 0) {
@@ -5071,12 +5596,25 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
                 const double elapsed = (
                     now - gScreenTransitionStartTime) / 1000.0;
                 if (elapsed >= kScreenFadeSeconds) {
-                    gScreenState = gSkipTutorial
-                        ? ScreenState::PreparationFadingIn
-                        : ScreenState::Tutorial;
+                    if (gSkipTutorial) {
+                        StartPreGameMessage(now);
+                    } else {
+                        gScreenState = ScreenState::Tutorial;
+                    }
                     gScreenTransitionStartTime = now;
                     gIsTableHovered = false;
                     gHoveredPngSocket = -1;
+                }
+            } else if (gScreenState == ScreenState::PreGameMessage) {
+                const double elapsed = (
+                    now - gPreGameMessageStartTime) / 1000.0;
+                const double totalSeconds =
+                    kPreGameMessageFadeSeconds * 2.0
+                    + kPreGameMessageHoldSeconds;
+                visualChanged = true;
+                if (elapsed >= totalSeconds) {
+                    gScreenState = ScreenState::PreparationFadingIn;
+                    gScreenTransitionStartTime = now;
                 }
             } else if (gScreenState == ScreenState::PreparationFadingIn) {
                 const double elapsed = (
@@ -5092,6 +5630,7 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
                 if (elapsed >= kCountdownStepSeconds * kCountdownStepCount) {
                     if (gDayStartTime == 0) {
                         gDayStartTime = now;
+                        StartBusinessMusic();
                     }
                     gScreenState = ScreenState::NpcEntering;
                     gPreparationSequenceStartTime = now;
@@ -5208,7 +5747,20 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
                                 / kNarrationCharacterIntervalMilliseconds
                                 + 1));
                     if (nextVisibleLength != gNarrationVisibleLength) {
+                        bool revealedNonWhitespace = false;
+                        for (size_t index = gNarrationVisibleLength;
+                             index < nextVisibleLength;
+                             ++index) {
+                            if (!std::iswspace(
+                                    gCurrentNarrationText[index])) {
+                                revealedNonWhitespace = true;
+                                break;
+                            }
+                        }
                         gNarrationVisibleLength = nextVisibleLength;
+                        if (revealedNonWhitespace) {
+                            PlaySoundEffect(SoundEffect::NpcTalking);
+                        }
                         visualChanged = true;
                     }
                     if (gNarrationVisibleLength
@@ -5391,12 +5943,16 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
     constexpr DWORD windowStyle = WS_OVERLAPPEDWINDOW;
     RECT windowRect{0, 0, kDesignWidth, kDesignHeight};
     AdjustWindowRectEx(&windowRect, windowStyle, FALSE, 0);
+    const int windowWidth = windowRect.right - windowRect.left;
+    const int windowHeight = windowRect.bottom - windowRect.top;
+    const int windowX = (GetSystemMetrics(SM_CXSCREEN) - windowWidth) / 2;
+    const int windowY = (GetSystemMetrics(SM_CYSCREEN) - windowHeight) / 2;
 
     HWND window = CreateWindowEx(
         0, kWindowClass, kWindowTitle, windowStyle,
-        CW_USEDEFAULT, CW_USEDEFAULT,
-        windowRect.right - windowRect.left,
-        windowRect.bottom - windowRect.top,
+        windowX, windowY,
+        windowWidth,
+        windowHeight,
         nullptr, nullptr, instance, nullptr);
 
     if (!window) {
@@ -5425,6 +5981,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
         Gdiplus::GdiplusShutdown(gGdiplusToken);
         return 1;
     }
+    InitializeSoundSystem(window);
     ShowWindow(window, showCommand);
     UpdateWindow(window);
 
@@ -5434,6 +5991,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
         DispatchMessage(&message);
     }
 
+    ShutdownSoundSystem();
     UnloadNpcImages();
     UnloadMoneyImages();
     UnloadMaterialImages();
