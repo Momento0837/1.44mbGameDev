@@ -23,7 +23,7 @@ constexpr wchar_t kNarrationFontName[] = L"DOSPilgi";
 
 constexpr int kDesignWidth = 800;
 constexpr int kDesignHeight = 600;
-constexpr int kSupersampleScale = 3;
+constexpr double kSupersampleScale = 1.5;
 constexpr int kPlayAreaX = 200;
 constexpr int kPlayAreaY = 100;
 constexpr int kPlayAreaSize = 400;
@@ -77,6 +77,14 @@ constexpr int kCuttingBoardWidth = 160;
 constexpr int kCuttingBoardHeight = 78;
 constexpr int kCuttingBoardBorderWidth = 2;
 constexpr int kMaximumMaterialClones = 64;
+constexpr int kCompletedFoodSourceWidth = 32;
+constexpr int kCompletedFoodSourceHeight = 16;
+constexpr int kCompletedFoodDisplayWidth = 64;
+constexpr int kCompletedFoodDisplayHeight = 32;
+constexpr double kCompletionPresentationSeconds = 1.2;
+constexpr double kFogFallDistance = 50.0;
+constexpr int kFogSourceSize = 16;
+constexpr int kFogDisplaySize = 64;
 constexpr int kMaximumStarParticles = 32;
 constexpr double kStarParticleGravity = 260.0;
 constexpr double kStarParticleSize = 7.0;
@@ -118,7 +126,7 @@ constexpr int kMoneyCoinDisplaySize = 32;
 constexpr int kMoneyTextGap = 8;
 constexpr int kMoneyTextWidth = 120;
 constexpr int kMoneyFontHeight = 24;
-constexpr long long kInitialDailyRevenueGoal = 800;
+constexpr long long kInitialDailyRevenueGoal = 1000;
 struct CustomerCategoryReward {
     const wchar_t* id;
     int baseReward;
@@ -200,6 +208,12 @@ constexpr int kTrophyPriceTextGap = 10;
 constexpr ULONGLONG kTrophyPriceBlinkMilliseconds = 300;
 constexpr ULONGLONG kTrophyPriceBlinkDurationMilliseconds =
     kTrophyPriceBlinkMilliseconds * 4;
+constexpr int kTutorialContentWidth = 390;
+constexpr int kTutorialContentLeft =
+    (kDesignWidth - kTutorialContentWidth) / 2;
+constexpr int kTutorialCheckboxLeft = 22;
+constexpr int kTutorialCheckboxTop = 560;
+constexpr int kTutorialCheckboxSize = 10;
 constexpr int kExitDialogWidth = 300;
 constexpr int kExitDialogHeight = 200;
 constexpr int kExitDialogButtonWidth = 80;
@@ -289,6 +303,7 @@ ULONGLONG gLastAnimationTickTime = 0;
 enum class ScreenState {
     Title,
     TitleFadingOut,
+    Tutorial,
     PreparationFadingIn,
     Preparation,
     Countdown,
@@ -314,6 +329,7 @@ ULONGLONG gNpcIdleStartTime = 0;
 int gNpcIdleStep = 0;
 long long gOwnedMoney = 0;
 bool gIsTrophyPurchased = false;
+bool gSkipTutorial = false;
 ULONGLONG gTrophyInsufficientFundsStartTime = 0;
 long long gEarnedMoney = 0;
 long long gDayRevenue = 0;
@@ -361,8 +377,18 @@ struct MaterialClone {
     int size;
     float angle;
 };
+struct FogParticle {
+    double x;
+    double y;
+    double startAngle;
+    double targetAngle;
+};
 MaterialClone gMaterialClones[kMaximumMaterialClones]{};
 int gMaterialCloneCount = 0;
+std::vector<FogParticle> gFogParticles;
+bool gIsCompletionPresentationActive = false;
+ULONGLONG gCompletionPresentationStartTime = 0;
+int gCompletedFoodImageIndex = -1;
 struct StarParticle {
     double x;
     double y;
@@ -453,10 +479,20 @@ bool gShouldEndDayAfterOrder = false;
 std::wstring gAssetsDirectory;
 ULONG_PTR gGdiplusToken = 0;
 Gdiplus::Image* gMaterialImages[kMaterialBinCount]{};
+Gdiplus::Bitmap* gMaterialShadowImages[kMaterialBinCount]{};
 Gdiplus::Image* gOwnedMoneyCoinImage = nullptr;
 Gdiplus::Image* gEarnedMoneyCoinImage = nullptr;
 Gdiplus::Image* gObjectiveImage = nullptr;
 Gdiplus::Image* gTrophyImage = nullptr;
+Gdiplus::Bitmap* gTrophyShadowImage = nullptr;
+constexpr int kCompletedFoodImageCount = 6;
+Gdiplus::Image* gCompletedFoodImages[kCompletedFoodImageCount]{};
+Gdiplus::Image* gFogImage = nullptr;
+HDC gBackBufferDc = nullptr;
+HBITMAP gBackBufferBitmap = nullptr;
+HGDIOBJ gBackBufferOldBitmap = nullptr;
+int gBackBufferWidth = 0;
+int gBackBufferHeight = 0;
 
 std::wstring PlayerSavePath() {
     wchar_t executablePath[MAX_PATH]{};
@@ -480,6 +516,10 @@ void LoadPlayerSave() {
         if (file >> savedTrophyPurchased) {
             gIsTrophyPurchased = savedTrophyPurchased != 0;
         }
+        int savedSkipTutorial = 0;
+        if (file >> savedSkipTutorial) {
+            gSkipTutorial = savedSkipTutorial != 0;
+        }
     }
 }
 
@@ -487,7 +527,8 @@ void SavePlayerData() {
     std::ofstream file(PlayerSavePath(), std::ios::trunc);
     if (file) {
         file << gOwnedMoney << '\n'
-             << (gIsTrophyPurchased ? 1 : 0) << '\n';
+             << (gIsTrophyPurchased ? 1 : 0) << '\n'
+             << (gSkipTutorial ? 1 : 0) << '\n';
     }
 }
 enum class NpcPart {
@@ -1040,6 +1081,37 @@ void LoadMaterialImages() {
         Gdiplus::Image* image = Gdiplus::Image::FromFile(imagePath.c_str(), FALSE);
         if (image != nullptr && image->GetLastStatus() == Gdiplus::Ok) {
             gMaterialImages[index] = image;
+            Gdiplus::Bitmap* shadow = new Gdiplus::Bitmap(
+                kMaterialImageSourceSize,
+                kMaterialImageSourceSize,
+                PixelFormat32bppARGB);
+            if (shadow->GetLastStatus() == Gdiplus::Ok) {
+                Gdiplus::Graphics graphics(shadow);
+                graphics.Clear(Gdiplus::Color(0, 0, 0, 0));
+                Gdiplus::ColorMatrix matrix = {
+                    0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                    0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                    0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                    0.0f, 0.0f, 0.0f, 0.15f, 0.0f,
+                    0.0f, 0.0f, 0.0f, 0.0f, 1.0f
+                };
+                Gdiplus::ImageAttributes attributes;
+                attributes.SetColorMatrix(&matrix);
+                graphics.DrawImage(
+                    image,
+                    Gdiplus::Rect(
+                        0, 0,
+                        kMaterialImageSourceSize,
+                        kMaterialImageSourceSize),
+                    0, 0,
+                    kMaterialImageSourceSize,
+                    kMaterialImageSourceSize,
+                    Gdiplus::UnitPixel,
+                    &attributes);
+                gMaterialShadowImages[index] = shadow;
+            } else {
+                delete shadow;
+            }
         } else {
             delete image;
         }
@@ -1061,6 +1133,69 @@ void LoadMoneyImages() {
     gEarnedMoneyCoinImage = LoadOptionalImage(kEarnedMoneyCoinImagePath);
     gObjectiveImage = LoadOptionalImage(kObjectiveImagePath);
     gTrophyImage = LoadOptionalImage(kTrophyImagePath);
+    constexpr wchar_t completedFoodPaths[kCompletedFoodImageCount][40] = {
+        L"materials\\kimbop.png",
+        L"materials\\mintkimbop.png",
+        L"materials\\onlykimbop.png",
+        L"materials\\saladwrap.png",
+        L"materials\\salad.png",
+        L"materials\\mint_chocolate_2.png"
+    };
+    for (int index = 0; index < kCompletedFoodImageCount; ++index) {
+        gCompletedFoodImages[index] = LoadOptionalImage(
+            completedFoodPaths[index]);
+    }
+    gFogImage = LoadOptionalImage(L"materials\\fog.png");
+    if (gTrophyImage != nullptr) {
+        const int shadowSize = kTrophyImageDisplaySize
+            + kTrophyShadowBlurRadius * 2;
+        gTrophyShadowImage = new Gdiplus::Bitmap(
+            shadowSize, shadowSize, PixelFormat32bppARGB);
+        if (gTrophyShadowImage->GetLastStatus() == Gdiplus::Ok) {
+            Gdiplus::Graphics graphics(gTrophyShadowImage);
+            graphics.Clear(Gdiplus::Color(0, 0, 0, 0));
+            graphics.SetInterpolationMode(Gdiplus::InterpolationModeNearestNeighbor);
+            graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
+            constexpr int blurWeights[] = {1, 4, 6, 4, 1};
+            constexpr float totalBlurWeight = 256.0f;
+            for (int y = -kTrophyShadowBlurRadius;
+                 y <= kTrophyShadowBlurRadius;
+                 ++y) {
+                for (int x = -kTrophyShadowBlurRadius;
+                     x <= kTrophyShadowBlurRadius;
+                     ++x) {
+                    const float alpha = 0.15f
+                        * blurWeights[x + kTrophyShadowBlurRadius]
+                        * blurWeights[y + kTrophyShadowBlurRadius]
+                        / totalBlurWeight;
+                    Gdiplus::ColorMatrix matrix = {
+                        0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                        0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                        0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                        0.0f, 0.0f, 0.0f, alpha, 0.0f,
+                        0.0f, 0.0f, 0.0f, 0.0f, 1.0f
+                    };
+                    Gdiplus::ImageAttributes attributes;
+                    attributes.SetColorMatrix(&matrix);
+                    graphics.DrawImage(
+                        gTrophyImage,
+                        Gdiplus::Rect(
+                            kTrophyShadowBlurRadius + x,
+                            kTrophyShadowBlurRadius + y,
+                            kTrophyImageDisplaySize,
+                            kTrophyImageDisplaySize),
+                        0, 0,
+                        kTrophyImageSourceSize,
+                        kTrophyImageSourceSize,
+                        Gdiplus::UnitPixel,
+                        &attributes);
+                }
+            }
+        } else {
+            delete gTrophyShadowImage;
+            gTrophyShadowImage = nullptr;
+        }
+    }
 }
 
 void LoadNpcImages() {
@@ -1075,6 +1210,10 @@ void LoadNpcImages() {
 }
 
 void UnloadMaterialImages() {
+    for (Gdiplus::Bitmap*& image : gMaterialShadowImages) {
+        delete image;
+        image = nullptr;
+    }
     for (Gdiplus::Image*& image : gMaterialImages) {
         delete image;
         image = nullptr;
@@ -1082,6 +1221,14 @@ void UnloadMaterialImages() {
 }
 
 void UnloadMoneyImages() {
+    delete gTrophyShadowImage;
+    gTrophyShadowImage = nullptr;
+    for (Gdiplus::Image*& image : gCompletedFoodImages) {
+        delete image;
+        image = nullptr;
+    }
+    delete gFogImage;
+    gFogImage = nullptr;
     delete gOwnedMoneyCoinImage;
     gOwnedMoneyCoinImage = nullptr;
     delete gEarnedMoneyCoinImage;
@@ -1394,7 +1541,7 @@ void RandomizeNpcAppearance() {
 void DrawMaterialShadow(HDC dc, int materialIndex, const RECT& area) {
     if (materialIndex < 0
         || materialIndex >= kMaterialBinCount
-        || gMaterialImages[materialIndex] == nullptr) {
+        || gMaterialShadowImages[materialIndex] == nullptr) {
         return;
     }
 
@@ -1403,20 +1550,8 @@ void DrawMaterialShadow(HDC dc, int materialIndex, const RECT& area) {
     graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
     graphics.SetSmoothingMode(Gdiplus::SmoothingModeNone);
     graphics.SetCompositingQuality(Gdiplus::CompositingQualityHighSpeed);
-    Gdiplus::ColorMatrix shadowMatrix = {
-        0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
-        0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
-        0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
-        0.0f, 0.0f, 0.0f, 0.15f, 0.0f,
-        0.0f, 0.0f, 0.0f, 0.0f, 1.0f
-    };
-    Gdiplus::ImageAttributes attributes;
-    attributes.SetColorMatrix(
-        &shadowMatrix,
-        Gdiplus::ColorMatrixFlagsDefault,
-        Gdiplus::ColorAdjustTypeBitmap);
     graphics.DrawImage(
-        gMaterialImages[materialIndex],
+        gMaterialShadowImages[materialIndex],
         Gdiplus::Rect(
             area.left,
             area.top,
@@ -1426,8 +1561,7 @@ void DrawMaterialShadow(HDC dc, int materialIndex, const RECT& area) {
         0,
         kMaterialImageSourceSize,
         kMaterialImageSourceSize,
-        Gdiplus::UnitPixel,
-        &attributes);
+        Gdiplus::UnitPixel);
 }
 
 void DrawRotatedMaterialImage(
@@ -1493,6 +1627,130 @@ int CuttingBoardBaseY() {
     return kCuttingBoardCookingY + static_cast<int>(kCookingTableLift);
 }
 
+DialogueTree* CurrentDialogueTree();
+
+bool RecipeContainsMaterial(const DialogueTree& tree, const wchar_t* id) {
+    int materialIndex = -1;
+    for (int index = 0; index < kMaterialBinCount; ++index) {
+        if (std::wcscmp(kMaterialIds[index], id) == 0) {
+            materialIndex = index;
+            break;
+        }
+    }
+    return std::any_of(
+        tree.recipe.begin(), tree.recipe.end(),
+        [materialIndex](const DialogueTree::RecipeIngredient& ingredient) {
+            return ingredient.materialIndex == materialIndex;
+        });
+}
+
+void StartCompletionPresentation() {
+    DialogueTree* tree = CurrentDialogueTree();
+    if (tree == nullptr || gMaterialCloneCount == 0) {
+        return;
+    }
+    const bool hasSeaweed = RecipeContainsMaterial(*tree, L"seaweed_and_rice");
+    const bool hasMint = RecipeContainsMaterial(*tree, L"mint_chocolate");
+    const bool hasTortilla = RecipeContainsMaterial(*tree, L"tortilla");
+    if (tree->menuName == L"kimbopx10"
+        || tree->menuName == L"kimbop_x10") {
+        gCompletedFoodImageIndex = 2;
+    } else if (tree->menuName == L"mint_chocolate") {
+        gCompletedFoodImageIndex = 5;
+    } else if (hasSeaweed && hasMint) {
+        gCompletedFoodImageIndex = 1;
+    } else if (hasSeaweed) {
+        gCompletedFoodImageIndex = 0;
+    } else if (hasTortilla) {
+        gCompletedFoodImageIndex = 3;
+    } else {
+        gCompletedFoodImageIndex = 4;
+    }
+
+    gFogParticles.clear();
+    const int fogCount = RandomRange(2, 3);
+    const int boardLeft = kPlayAreaX + kCuttingBoardX;
+    const int boardTop = kPlayAreaY + CuttingBoardBaseY();
+    for (int index = 0; index < fogCount; ++index) {
+        gFogParticles.push_back({
+            static_cast<double>(RandomRange(
+                boardLeft - 10,
+                boardLeft + kCuttingBoardWidth + 10 - kFogDisplaySize)),
+            static_cast<double>(RandomRange(
+                boardTop - 10,
+                boardTop + kCuttingBoardHeight + 10 - kFogDisplaySize)),
+            static_cast<double>(RandomRange(-3, 3)),
+            NextRandom() % 2 == 0 ? -15.0 : 15.0
+        });
+    }
+    gCompletionPresentationStartTime = GetTickCount64();
+    gIsCompletionPresentationActive = true;
+}
+
+void DrawCompletionPresentation(HDC dc, const Layout& layout) {
+    if (!gIsCompletionPresentationActive) {
+        return;
+    }
+    const double progress = (std::min)(
+        1.0,
+        (GetTickCount64() - gCompletionPresentationStartTime)
+            / 1000.0 / kCompletionPresentationSeconds);
+    const int boardLeft = kPlayAreaX + kCuttingBoardX;
+    const int boardTop = kPlayAreaY + CuttingBoardBaseY();
+    if (gCompletedFoodImageIndex >= 0
+        && gCompletedFoodImageIndex < kCompletedFoodImageCount
+        && gCompletedFoodImages[gCompletedFoodImageIndex] != nullptr) {
+        const RECT foodArea = LogicalRect(
+            layout,
+            boardLeft + (kCuttingBoardWidth - kCompletedFoodDisplayWidth) / 2,
+            boardTop + (kCuttingBoardHeight - kCompletedFoodDisplayHeight) / 2,
+            kCompletedFoodDisplayWidth,
+            kCompletedFoodDisplayHeight);
+        Gdiplus::Graphics graphics(dc);
+        graphics.SetInterpolationMode(Gdiplus::InterpolationModeNearestNeighbor);
+        graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
+        graphics.DrawImage(
+            gCompletedFoodImages[gCompletedFoodImageIndex],
+            Gdiplus::Rect(foodArea.left, foodArea.top,
+                foodArea.right - foodArea.left,
+                foodArea.bottom - foodArea.top),
+            0, 0, kCompletedFoodSourceWidth, kCompletedFoodSourceHeight,
+            Gdiplus::UnitPixel);
+    }
+    if (gFogImage == nullptr) {
+        return;
+    }
+    for (const FogParticle& fog : gFogParticles) {
+        const POINT center = LogicalPoint(
+            layout,
+            fog.x + kFogDisplaySize * 0.5,
+            fog.y + kFogDisplaySize * 0.5 + kFogFallDistance * progress);
+        Gdiplus::Graphics graphics(dc);
+        graphics.SetInterpolationMode(Gdiplus::InterpolationModeNearestNeighbor);
+        graphics.TranslateTransform(
+            static_cast<Gdiplus::REAL>(center.x),
+            static_cast<Gdiplus::REAL>(center.y));
+        graphics.RotateTransform(static_cast<Gdiplus::REAL>(
+            fog.startAngle + (fog.targetAngle - fog.startAngle) * progress));
+        Gdiplus::ColorMatrix opacityMatrix = {
+            1, 0, 0, 0, 0,
+            0, 1, 0, 0, 0,
+            0, 0, 1, 0, 0,
+            0, 0, 0, static_cast<Gdiplus::REAL>(1.0 - progress), 0,
+            0, 0, 0, 0, 1
+        };
+        Gdiplus::ImageAttributes attributes;
+        attributes.SetColorMatrix(&opacityMatrix);
+        const int fogSize = static_cast<int>(std::lround(
+            kFogDisplaySize * layout.scale));
+        graphics.DrawImage(
+            gFogImage,
+            Gdiplus::Rect(-fogSize / 2, -fogSize / 2, fogSize, fogSize),
+            0, 0, kFogSourceSize, kFogSourceSize,
+            Gdiplus::UnitPixel, &attributes);
+    }
+}
+
 void DrawCuttingBoardAndClones(HDC dc, const Layout& layout) {
     const RECT board = LogicalRect(
         layout,
@@ -1523,6 +1781,7 @@ void DrawCuttingBoardAndClones(HDC dc, const Layout& layout) {
         DrawRotatedMaterialImage(
             dc, clone.materialIndex, imageArea, clone.angle);
     }
+    DrawCompletionPresentation(dc, layout);
 }
 
 void AddMaterialClone(int materialIndex) {
@@ -2250,9 +2509,12 @@ struct CookingEvaluation {
 constexpr long long CalculateCookingReward(
     int baseReward,
     int errorCount) {
+    if (errorCount >= 3) {
+        return 0;
+    }
     const int multiplierTenths = errorCount == 0
         ? 10
-        : (errorCount == 1 ? 7 : (errorCount == 2 ? 5 : 0));
+        : (errorCount == 1 ? 7 : 5);
     return static_cast<long long>(baseReward) * multiplierTenths / 10;
 }
 
@@ -2267,6 +2529,12 @@ constexpr long long CalculateSequenceErrorReward(int baseReward) {
 
 static_assert(CalculateSequenceErrorReward(200) == 20);
 
+int RewardErrorCount(int actualErrorCount) {
+    return (std::max)(
+        0,
+        actualErrorCount - (gIsTrophyPurchased ? 1 : 0));
+}
+
 constexpr long long CalculateNextDailyRevenueGoal(
     long long currentGoal,
     bool goalMet) {
@@ -2274,9 +2542,9 @@ constexpr long long CalculateNextDailyRevenueGoal(
     return (currentGoal * multiplierTenths + 5) / 10;
 }
 
-static_assert(CalculateNextDailyRevenueGoal(800, true) == 880);
-static_assert(CalculateNextDailyRevenueGoal(880, true) == 968);
-static_assert(CalculateNextDailyRevenueGoal(800, false) == 960);
+static_assert(CalculateNextDailyRevenueGoal(1000, true) == 1100);
+static_assert(CalculateNextDailyRevenueGoal(1100, true) == 1210);
+static_assert(CalculateNextDailyRevenueGoal(1000, false) == 1200);
 
 int CurrentOrderBaseReward() {
     if (gCurrentDialogueCategory < 0
@@ -2359,7 +2627,7 @@ CookingEvaluation EvaluateCurrentRecipe() {
     evaluation.errorCount = evaluation.materialCountDifference;
     evaluation.reward = CalculateCookingReward(
         CurrentOrderBaseReward(),
-        evaluation.errorCount);
+        RewardErrorCount(evaluation.errorCount));
     return evaluation;
 }
 
@@ -2384,15 +2652,20 @@ void FinishCookingOrder() {
     gNpcOrderState = NpcOrderState::AfterOrder;
     ClearHoverNarrationInterruption();
     const std::vector<std::wstring>* reactionLines = &tree->afterCookingLines;
+    const int rewardErrorCount = RewardErrorCount(evaluation.errorCount);
+    if (evaluation.sequenceCorrect && rewardErrorCount >= 3) {
+        gOwnedMoney = (std::max)(0LL, gOwnedMoney - 50);
+        SavePlayerData();
+    }
     if (gWasEmptySubmission) {
         reactionLines = &tree->emptySubmissionLines;
     } else if (!evaluation.sequenceCorrect) {
         reactionLines = &tree->afterCooking0PercentLines;
-    } else if (evaluation.errorCount >= 3) {
+    } else if (rewardErrorCount >= 3) {
         reactionLines = &tree->afterCooking0PercentLines;
-    } else if (evaluation.errorCount == 2) {
+    } else if (rewardErrorCount == 2) {
         reactionLines = &tree->afterCooking50PercentLines;
-    } else if (evaluation.errorCount == 1) {
+    } else if (rewardErrorCount == 1) {
         reactionLines = &tree->afterCooking70PercentLines;
     }
     StartRandomLine(*reactionLines);
@@ -2408,6 +2681,7 @@ bool CanStartNpcExit(ULONGLONG now) {
         && gCurrentDialogueStage == DialogueStage::AfterCooking
         && !gIsNarrationTyping
         && gAfterCookingNarrationCompletedTime != 0
+        && !gIsCompletionPresentationActive
         && !gIsCookingTransitionRunning
         && gCookingState == CookingState::NonCooking
         && (now - gAfterCookingNarrationCompletedTime) / 1000.0
@@ -3420,6 +3694,9 @@ bool IsClickableAt(HWND window, int mouseX, int mouseY) {
         }
         return HitTestTitleButton(designX, designY) >= 0;
     }
+    if (gScreenState == ScreenState::Tutorial) {
+        return true;
+    }
     if (gScreenState == ScreenState::Preparation) {
         const RECT button = StartBusinessButtonRect();
         return PtInRect(&button, logicalPoint) != FALSE;
@@ -3701,7 +3978,7 @@ void StartPreparationScreenTransition() {
 }
 
 void ReturnToMainScreen(ULONGLONG now) {
-    gOwnedMoney += gEarnedMoney * 5 / 100;
+    gOwnedMoney += gEarnedMoney * 20 / 1000;
     SavePlayerData();
     gScreenState = ScreenState::Title;
     gTitleStartTime = now;
@@ -3734,7 +4011,8 @@ void StartCookingTransition(CookingState targetState) {
 
 bool IsCookingStateActive() {
     return gCookingState == CookingState::Cooking
-        && !gIsCookingTransitionRunning;
+        && !gIsCookingTransitionRunning
+        && !gIsCompletionPresentationActive;
 }
 
 bool CanEnterCookingMode() {
@@ -3968,46 +4246,20 @@ void DrawTrophy(HDC dc, const Layout& layout) {
         Gdiplus::Graphics graphics(dc);
         graphics.SetInterpolationMode(Gdiplus::InterpolationModeNearestNeighbor);
         graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
-        constexpr int blurWeights[] = {1, 4, 6, 4, 1};
-        constexpr float totalBlurWeight = 256.0f;
-        for (int y = -kTrophyShadowBlurRadius;
-             y <= kTrophyShadowBlurRadius;
-             ++y) {
-            for (int x = -kTrophyShadowBlurRadius;
-                 x <= kTrophyShadowBlurRadius;
-                 ++x) {
-                const float alpha = 0.15f
-                    * blurWeights[x + kTrophyShadowBlurRadius]
-                    * blurWeights[y + kTrophyShadowBlurRadius]
-                    / totalBlurWeight;
-                Gdiplus::ColorMatrix shadowMatrix = {
-                    0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
-                    0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
-                    0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
-                    0.0f, 0.0f, 0.0f, alpha, 0.0f,
-                    0.0f, 0.0f, 0.0f, 0.0f, 1.0f
-                };
-                Gdiplus::ImageAttributes shadowAttributes;
-                shadowAttributes.SetColorMatrix(
-                    &shadowMatrix,
-                    Gdiplus::ColorMatrixFlagsDefault,
-                    Gdiplus::ColorAdjustTypeBitmap);
-                graphics.DrawImage(
-                    gTrophyImage,
-                    Gdiplus::Rect(
-                        area.left + static_cast<int>(std::lround(
-                            x * layout.scale)),
-                        area.top + static_cast<int>(std::lround(
-                            y * layout.scale)),
-                        area.right - area.left,
-                        area.bottom - area.top),
-                    0,
-                    0,
-                    kTrophyImageSourceSize,
-                    kTrophyImageSourceSize,
-                    Gdiplus::UnitPixel,
-                    &shadowAttributes);
-            }
+        if (gTrophyShadowImage != nullptr) {
+            const RECT shadowArea = LogicalRect(
+                layout,
+                logicalArea.left - kTrophyShadowBlurRadius,
+                logicalArea.top - kTrophyShadowBlurRadius,
+                kTrophyImageDisplaySize + kTrophyShadowBlurRadius * 2,
+                kTrophyImageDisplaySize + kTrophyShadowBlurRadius * 2);
+            graphics.DrawImage(
+                gTrophyShadowImage,
+                Gdiplus::Rect(
+                    shadowArea.left,
+                    shadowArea.top,
+                    shadowArea.right - shadowArea.left,
+                    shadowArea.bottom - shadowArea.top));
         }
         graphics.DrawImage(
             gTrophyImage,
@@ -4030,7 +4282,7 @@ void DrawTrophyTooltip(HDC dc, const Layout& layout) {
     }
 
     constexpr wchar_t tooltipText[] =
-        L"왠지 이걸 사면 실수해도 괜찮을 것 같다.";
+        L"왠지 이걸 사면 하나 정도 실수해도 괜찮을 것 같다.";
     const HFONT font = CreateUiFont(
         layout,
         kTrophyTooltipFontHeight,
@@ -4166,6 +4418,123 @@ void DrawTrophyTooltip(HDC dc, const Layout& layout) {
     }
 }
 
+RECT TutorialCheckboxRect() {
+    return {
+        kTutorialCheckboxLeft,
+        kTutorialCheckboxTop,
+        kTutorialCheckboxLeft + kTutorialCheckboxSize,
+        kTutorialCheckboxTop + kTutorialCheckboxSize
+    };
+}
+
+void DrawTutorialScreen(HDC dc, const RECT& client) {
+    FillSolid(dc, client, kLetterboxColor);
+    if (client.right <= client.left || client.bottom <= client.top) {
+        return;
+    }
+    const Layout layout = GetLayout(client);
+    const auto drawText = [&](int x, int y, int width, int height,
+                              const wchar_t* text, double fontHeight,
+                              int weight = FW_NORMAL) {
+        RECT area = LogicalRect(layout, x, y, width, height);
+        const HFONT font = CreateUiFont(layout, fontHeight, weight);
+        const HGDIOBJ oldFont = SelectObject(dc, font);
+        const int oldBackgroundMode = SetBkMode(dc, TRANSPARENT);
+        const COLORREF oldTextColor = SetTextColor(dc, RGB(0xee, 0xee, 0xee));
+        DrawText(dc, text, -1, &area,
+            DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+        SetTextColor(dc, oldTextColor);
+        SetBkMode(dc, oldBackgroundMode);
+        SelectObject(dc, oldFont);
+        DeleteObject(font);
+    };
+    const auto drawImage = [&](Gdiplus::Image* image, int sourceSize,
+                               int x, int y, int size) {
+        if (image == nullptr) {
+            return;
+        }
+        const RECT area = LogicalRect(layout, x, y, size, size);
+        Gdiplus::Graphics graphics(dc);
+        graphics.SetInterpolationMode(Gdiplus::InterpolationModeNearestNeighbor);
+        graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
+        graphics.DrawImage(image,
+            Gdiplus::Rect(area.left, area.top,
+                area.right - area.left, area.bottom - area.top),
+            0, 0, sourceSize, sourceSize, Gdiplus::UnitPixel);
+    };
+
+    struct TutorialMoneyRow {
+        Gdiplus::Image* image;
+        const wchar_t* title;
+        const wchar_t* description;
+    };
+    const TutorialMoneyRow rows[] = {
+        {gOwnedMoneyCoinImage, L"가진 돈", L"- 벌어들인돈의 일부가 전환된다."},
+        {gEarnedMoneyCoinImage, L"벌어들인 돈", L"- 매 판마다 벌어들인돈이 표시된다."},
+        {gObjectiveImage, L"목표 금액", L"- 매일 달성해야 할 금액."}
+    };
+    for (int index = 0; index < 3; ++index) {
+        const int y = 88 + index * 48;
+        drawImage(rows[index].image, kMoneyCoinSourceSize,
+            kTutorialContentLeft, y + 4, 22);
+        drawText(kTutorialContentLeft + 38, y, 300, 22,
+            rows[index].title, 15.0);
+        drawText(kTutorialContentLeft + 38, y + 20, 330, 20,
+            rows[index].description, 12.0);
+    }
+    drawImage(gTrophyImage, kTrophyImageSourceSize,
+        kTutorialContentLeft - 6, 234, 40);
+    drawText(kTutorialContentLeft + 38, 232, 300, 24,
+        L"개발자의 트로피", 15.0);
+    drawText(kTutorialContentLeft + 38, 254, 340, 20,
+        L"- 가진 돈으로 살수있는 유일한 아이템.", 12.0);
+
+    drawText(kTutorialContentLeft, 296, 300, 28, L"플레이 방법", 18.0);
+    drawText(kTutorialContentLeft + 4, 330, 360, 22,
+        L"1.  NPC의 주문을 듣는다.", 14.0, FW_BOLD);
+    drawText(kTutorialContentLeft + 4, 358, 390, 22,
+        L"2.  나레이션 박스를 클릭하여 추가 주문을 듣는다.", 14.0);
+    drawText(kTutorialContentLeft + 4, 386, 390, 22,
+        L"3.  주문에 따라 재료를 클릭하여 조리한다.", 14.0);
+
+    constexpr wchar_t materialLabels[kMaterialBinCount][8] = {
+        L"또띠아", L"양상추", L"파프리카", L"당근", L"에그마요",
+        L"토마토", L"민트초코", L"김과 밥", L"우엉", L"단무지",
+        L"게살", L"시금치", L"딸기", L"초콜릿"
+    };
+    for (int index = 0; index < kMaterialBinCount; ++index) {
+        const int row = index / 7;
+        const int column = index % 7;
+        const int x = kTutorialContentLeft + column * 55;
+        const int y = 420 + row * 48;
+        const RECT imageArea = LogicalRect(layout, x + 9, y, 24, 24);
+        DrawMaterialImage(dc, index, imageArea);
+        RECT labelArea{x - 2, y + 25, x + 45, y + 43};
+        DrawCenteredText(dc, layout, labelArea, materialLabels[index],
+            10.0, RGB(0xdd, 0xdd, 0xdd));
+    }
+
+    const RECT logicalCheckbox = TutorialCheckboxRect();
+    const RECT checkbox = LogicalRect(layout,
+        logicalCheckbox.left, logicalCheckbox.top,
+        kTutorialCheckboxSize, kTutorialCheckboxSize);
+    const HPEN pen = CreatePen(PS_SOLID, 1, RGB(0xdd, 0xdd, 0xdd));
+    const HGDIOBJ oldPen = SelectObject(dc, pen);
+    const HGDIOBJ oldBrush = SelectObject(dc, GetStockObject(NULL_BRUSH));
+    Rectangle(dc, checkbox.left, checkbox.top, checkbox.right, checkbox.bottom);
+    if (gSkipTutorial) {
+        MoveToEx(dc, checkbox.left + 2, checkbox.top + 5, nullptr);
+        LineTo(dc, checkbox.left + 4, checkbox.bottom - 2);
+        LineTo(dc, checkbox.right - 2, checkbox.top + 2);
+    }
+    SelectObject(dc, oldBrush);
+    SelectObject(dc, oldPen);
+    DeleteObject(pen);
+    drawText(kTutorialCheckboxLeft + kTutorialCheckboxSize + 6,
+        kTutorialCheckboxTop - 5, 180, 20,
+        L"다음부터는 표시하지 않기", 11.0);
+}
+
 void DrawGame(HDC dc, const RECT& client) {
     FillSolid(dc, client, kLetterboxColor);
 
@@ -4259,6 +4628,10 @@ void DrawApplication(HDC dc, const RECT& client) {
         DrawTitleScreen(dc, client);
         return;
     }
+    if (gScreenState == ScreenState::Tutorial) {
+        DrawTutorialScreen(dc, client);
+        return;
+    }
 
     DrawGame(dc, client);
     const Layout layout = GetLayout(client);
@@ -4288,6 +4661,46 @@ void DrawApplication(HDC dc, const RECT& client) {
     DrawTrophyTooltip(dc, layout);
 }
 
+void ReleaseBackBuffer() {
+    if (gBackBufferDc != nullptr && gBackBufferOldBitmap != nullptr) {
+        SelectObject(gBackBufferDc, gBackBufferOldBitmap);
+    }
+    if (gBackBufferBitmap != nullptr) {
+        DeleteObject(gBackBufferBitmap);
+    }
+    if (gBackBufferDc != nullptr) {
+        DeleteDC(gBackBufferDc);
+    }
+    gBackBufferDc = nullptr;
+    gBackBufferBitmap = nullptr;
+    gBackBufferOldBitmap = nullptr;
+    gBackBufferWidth = 0;
+    gBackBufferHeight = 0;
+}
+
+bool EnsureBackBuffer(HDC referenceDc, int width, int height) {
+    if (gBackBufferDc != nullptr
+        && gBackBufferBitmap != nullptr
+        && gBackBufferWidth == width
+        && gBackBufferHeight == height) {
+        return true;
+    }
+    ReleaseBackBuffer();
+    gBackBufferDc = CreateCompatibleDC(referenceDc);
+    if (gBackBufferDc == nullptr) {
+        return false;
+    }
+    gBackBufferBitmap = CreateCompatibleBitmap(referenceDc, width, height);
+    if (gBackBufferBitmap == nullptr) {
+        ReleaseBackBuffer();
+        return false;
+    }
+    gBackBufferOldBitmap = SelectObject(gBackBufferDc, gBackBufferBitmap);
+    gBackBufferWidth = width;
+    gBackBufferHeight = height;
+    return true;
+}
+
 void PaintWindow(HWND window) {
     PAINTSTRUCT paint{};
     HDC windowDc = BeginPaint(window, &paint);
@@ -4299,40 +4712,36 @@ void PaintWindow(HWND window) {
 
     if (width > 0 && height > 0) {
         // 설정 배율만큼 큰 후면 버퍼에 그린 뒤 축소해 사선 경계의 계단 현상을 줄인다.
-        const int bufferWidth = width * kSupersampleScale;
-        const int bufferHeight = height * kSupersampleScale;
-        HDC bufferDc = CreateCompatibleDC(windowDc);
-        if (bufferDc == nullptr) {
+        const int bufferWidth = static_cast<int>(std::lround(
+            width * kSupersampleScale));
+        const int bufferHeight = static_cast<int>(std::lround(
+            height * kSupersampleScale));
+        if (!EnsureBackBuffer(windowDc, bufferWidth, bufferHeight)) {
             DrawApplication(windowDc, client);
             EndPaint(window, &paint);
             return;
         }
-        HBITMAP bufferBitmap = CreateCompatibleBitmap(
-            windowDc, bufferWidth, bufferHeight);
-        if (bufferBitmap == nullptr) {
-            DeleteDC(bufferDc);
-            DrawApplication(windowDc, client);
-            EndPaint(window, &paint);
-            return;
-        }
-        HGDIOBJ oldBitmap = SelectObject(bufferDc, bufferBitmap);
 
         const RECT bufferClient{0, 0, bufferWidth, bufferHeight};
-        DrawApplication(bufferDc, bufferClient);
+        DrawApplication(gBackBufferDc, bufferClient);
 
-        // 고품질 축소 필터로 체크무늬 바닥의 가장자리를 부드럽게 합성한다.
-        SetStretchBltMode(windowDc, HALFTONE);
-        SetBrushOrgEx(windowDc, 0, 0, nullptr);
-        StretchBlt(
-            windowDc,
-            0, 0, width, height,
-            bufferDc,
-            0, 0, bufferWidth, bufferHeight,
-            SRCCOPY);
-
-        SelectObject(bufferDc, oldBitmap);
-        DeleteObject(bufferBitmap);
-        DeleteDC(bufferDc);
+        if (kSupersampleScale <= 1.0) {
+            BitBlt(
+                windowDc,
+                0, 0, width, height,
+                gBackBufferDc,
+                0, 0,
+                SRCCOPY);
+        } else {
+            SetStretchBltMode(windowDc, HALFTONE);
+            SetBrushOrgEx(windowDc, 0, 0, nullptr);
+            StretchBlt(
+                windowDc,
+                0, 0, width, height,
+                gBackBufferDc,
+                0, 0, bufferWidth, bufferHeight,
+                SRCCOPY);
+        }
     }
 
     EndPaint(window, &paint);
@@ -4400,8 +4809,7 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
             gIsTrackingMouse = true;
         }
         UpdateMouseCursor(window, mouseX, mouseY);
-        if (gScreenState == ScreenState::Game
-            || wasTrophyHovered != gIsTrophyHovered) {
+        if (wasTrophyHovered != gIsTrophyHovered) {
             InvalidateRect(window, nullptr, FALSE);
         }
         const ULONGLONG now = GetTickCount64();
@@ -4433,6 +4841,24 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
             && playY <= kPlayAreaSize;
 
         const POINT logicalMouse{designX, designY};
+        if (gScreenState == ScreenState::Tutorial) {
+            const RECT checkbox = TutorialCheckboxRect();
+            const RECT checkboxHitArea{
+                checkbox.left - 4,
+                checkbox.top - 4,
+                checkbox.right + 190,
+                checkbox.bottom + 4
+            };
+            if (PtInRect(&checkboxHitArea, logicalMouse)) {
+                gSkipTutorial = !gSkipTutorial;
+                SavePlayerData();
+            } else {
+                gScreenState = ScreenState::PreparationFadingIn;
+                gScreenTransitionStartTime = GetTickCount64();
+            }
+            InvalidateRect(window, nullptr, FALSE);
+            return 0;
+        }
         const RECT trophy = TrophyLogicalRect();
         if (gScreenState != ScreenState::Title
             && gScreenState != ScreenState::TitleFadingOut
@@ -4535,9 +4961,12 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
             InvalidateRect(window, nullptr, FALSE);
         } else if (IsCookingStateActive()
             && PtInRect(&resetButton, mousePoint)) {
+            StartCompletionPresentation();
             FinishCookingOrder();
             gMaterialCloneCount = 0;
-            StartCookingTransition(CookingState::NonCooking);
+            if (!gIsCompletionPresentationActive) {
+                StartCookingTransition(CookingState::NonCooking);
+            }
             InvalidateRect(window, nullptr, FALSE);
         } else if (CanEnterCookingMode()
             && gIsTableHovered) {
@@ -4592,6 +5021,17 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
                 gLastStarParticleUpdateTime = now;
             }
 
+            if (gIsCompletionPresentationActive) {
+                visualChanged = true;
+                if ((now - gCompletionPresentationStartTime) / 1000.0
+                    >= kCompletionPresentationSeconds) {
+                    gIsCompletionPresentationActive = false;
+                    gFogParticles.clear();
+                    gCompletedFoodImageIndex = -1;
+                    StartCookingTransition(CookingState::NonCooking);
+                }
+            }
+
             if (gIsNarrationTyping && gIsNarrationOverflowAnimating) {
                 UpdateNarrationParticles(now);
                 visualChanged = true;
@@ -4631,7 +5071,9 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
                 const double elapsed = (
                     now - gScreenTransitionStartTime) / 1000.0;
                 if (elapsed >= kScreenFadeSeconds) {
-                    gScreenState = ScreenState::PreparationFadingIn;
+                    gScreenState = gSkipTutorial
+                        ? ScreenState::PreparationFadingIn
+                        : ScreenState::Tutorial;
                     gScreenTransitionStartTime = now;
                     gIsTableHovered = false;
                     gHoveredPngSocket = -1;
@@ -4720,7 +5162,14 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
                     StartSettlement(now);
                 }
             } else if (gScreenState == ScreenState::Settlement) {
-                visualChanged = true;
+                const double elapsed = (
+                    now - gSettlementStartTime) / 1000.0;
+                const double animationEnd = kReceiptSlideSeconds
+                    + kSettlementButtonDelaySeconds
+                    + kSettlementButtonFadeSeconds;
+                if (elapsed < animationEnd) {
+                    visualChanged = true;
+                }
             }
 
             if (ShouldDrawNpc()
@@ -4864,8 +5313,11 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
                 }
             }
 
+            const double dayElapsed = CurrentDayElapsedSeconds();
             if (gDayStartTime != 0
-                && gScreenState != ScreenState::Settlement) {
+                && gScreenState != ScreenState::Settlement
+                && dayElapsed >= kSunsetStartSeconds
+                && dayElapsed < kDayDurationSeconds) {
                 visualChanged = true;
             }
 
@@ -4883,6 +5335,7 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
     case WM_DESTROY:
         SavePlayerData();
         KillTimer(window, kAnimationTimerId);
+        ReleaseBackBuffer();
         PostQuitMessage(0);
         return 0;
     default:
