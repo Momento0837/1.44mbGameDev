@@ -20,7 +20,7 @@
 namespace {
 
 constexpr wchar_t kWindowClass[] = L"OnePointFourFourMBGameWindow";
-constexpr wchar_t kWindowTitle[] = L"1.44MB Game";
+constexpr wchar_t kWindowTitle[] = L"주문을 똑바로 말해!!!";
 constexpr wchar_t kDefaultUiFontName[] = L"PFStardust 1.4 Medium";
 constexpr wchar_t kTitleFontName[] = L"PFStardust 1.4 Medium";
 constexpr wchar_t kNarrationFontName[] = L"DOSPilgi";
@@ -85,6 +85,7 @@ constexpr int kCompletedFoodSourceWidth = 32;
 constexpr int kCompletedFoodSourceHeight = 16;
 constexpr int kCompletedFoodDisplayWidth = 64;
 constexpr int kCompletedFoodDisplayHeight = 32;
+constexpr int kCompletedFoodShadowBlurRadius = 2;
 constexpr double kCompletionPresentationSeconds = 1.2;
 constexpr double kFogFallDistance = 50.0;
 constexpr int kFogSourceSize = 16;
@@ -129,9 +130,38 @@ constexpr int kOptionsBackButtonY = 20;
 constexpr int kOptionsBackButtonSize = 44;
 constexpr int kVolumeSliderLeft = 250;
 constexpr int kVolumeSliderRight = 550;
-constexpr int kVolumeSliderY = 330;
+constexpr int kVolumeSliderY = 190;
 constexpr int kVolumeSliderTrackHeight = 6;
 constexpr int kVolumeSliderKnobRadius = 10;
+constexpr int kFontLicenseDropdownTop = 250;
+constexpr int kFontLicenseDropdownHeight = 36;
+constexpr int kFontLicenseDropdownWidth = 340;
+constexpr int kFontLicenseDropdownGap = 20;
+constexpr int kFontLicenseDropdownLeft =
+    (kDesignWidth - kFontLicenseDropdownWidth * 2
+        - kFontLicenseDropdownGap) / 2;
+constexpr double kFontLicenseTextHeight = 15.0;
+constexpr wchar_t kDosPhilgiLicenseText[] =
+    L"The MIT License (MIT)\n\n"
+    L"Copyright (c) 2016-2022 Damheo Lee (이담허) "
+    L"(leedheo@gmail.com),\n\n"
+    L"with Reserved Font Name DOSMyungjo, DOSGothic, DOSSaemmul, "
+    L"Sam3KRFont, MiraeroNormal, and DOSIyagi,\n\n"
+    L"its OTF and BDF suffix name. (e.g. DOSMyungjo OTF)\n\n"
+    L"1. 상업적 이용 문의 (라이선스 관련) 현재 MIT 라이선스로 "
+    L"배포하고 있습니다.\n\n"
+    L"2. 영리목적 사용 (메신저 이모티콘 등) 가능합니다. 대신 부가 설명에 "
+    L"‘글꼴(폰트)로 도스샘물체(leedheo 제작)를 사용하였습니다’ 형태로 "
+    L"기재하시면 되겠습니다.\n\n"
+    L"3. 폰트 출처 및 이용 명시 등에 관하여 폰트 원출처는 "
+    L"https://github.com/hurss/fonts 입니다.";
+constexpr wchar_t kPfStardustLicenseText[] =
+    L"1. PF스타더스트 폰트의 저작권은 제작자인 피나타"
+    L"(campanula913@naver.com)에게 있습니다.\n\n"
+    L"2. PF스타더스트 폰트는 개인 및 기업사용자를 포함한 모두가 무료로 "
+    L"상업적 사용이 가능합니다.\n\n"
+    L"3. 제작자의 허락없이 수정 및 재배포, 유료로 판매하는 행위는 "
+    L"금지합니다.";
 
 // 타이틀 화면의 배치와 화면 전환 애니메이션 설정값이다.
 constexpr int kTitlePlaceholderWidth = 500;
@@ -143,8 +173,8 @@ constexpr int kTitleImageSourceHeight = 96;
 constexpr int kTitleImageIntegerScale = 3;
 constexpr double kTitleBreathingScale = 1.025;
 constexpr double kTitleBreathingSeconds = 3.2;
-constexpr double kTitleAppearanceDelaySeconds = 0.5;
-constexpr double kTitleFadeInSeconds = 0.8;
+constexpr double kTitleAppearanceDelaySeconds = 0.0;
+constexpr double kTitleFadeInSeconds = 1.0;
 constexpr double kScreenFadeSeconds = 0.5;
 constexpr int kTitleButtonFontHeight = 30;
 constexpr int kTitleButtonPadding = 5;
@@ -156,6 +186,8 @@ constexpr int kMoneyCoinDisplaySize = 32;
 constexpr int kMoneyTextGap = 8;
 constexpr int kMoneyTextWidth = 120;
 constexpr int kMoneyFontHeight = 24;
+constexpr int kMoneyTooltipPadding = 5;
+constexpr int kMoneyTooltipGap = 12;
 constexpr long long kInitialDailyRevenueGoal = 1000;
 struct CustomerCategoryReward {
     const wchar_t* id;
@@ -247,6 +279,12 @@ constexpr int kTutorialCheckboxSize = 10;
 constexpr double kPreGameMessageFadeSeconds = 1;
 constexpr double kPreGameMessageHoldSeconds = 2.0;
 constexpr double kPreGameMessageFontHeight = 20.0;
+constexpr wchar_t kPreGameMessages[4][64] = {
+    L"\"오늘의 목표는 매출이다. 부차적인 목표는 화내지 않는 것이다.\"",
+    L"\"세상에는 두 종류의 손님이 있다. 설명하는 손님과 설명했다고 믿는 손님.\"",
+    L"\"나는 요리를 한다. 왜 추리를 하고 있는지는 모르겠다.\"",
+    L"\"심연을 들여다보면 심연도 나를 본다. 손님 주문서를 보면 더하다.\""
+};
 constexpr int kExitDialogWidth = 300;
 constexpr int kExitDialogHeight = 200;
 constexpr int kExitDialogButtonWidth = 80;
@@ -328,6 +366,13 @@ POINT gMouseDesignPosition{};
 bool gHasMousePosition = false;
 bool gIsTrackingMouse = false;
 bool gIsTrophyHovered = false;
+enum class MoneyTooltipKind {
+    None,
+    Owned,
+    Earned,
+    Objective
+};
+MoneyTooltipKind gHoveredMoneyTooltip = MoneyTooltipKind::None;
 POINT gTrophyTooltipAnchorPosition{};
 POINT gTrophyFeedbackTooltipAnchorPosition{};
 ULONGLONG gLastAnimationTickTime = 0;
@@ -357,6 +402,7 @@ double gTitleButtonScales[3]{1.0, 1.0, 1.0};
 RECT gTitleButtonRects[3]{};
 bool gIsExitDialogVisible = false;
 bool gIsVolumeSliderDragging = false;
+int gExpandedFontLicenseDropdown = -1;
 ULONGLONG gPreparationSequenceStartTime = 0;
 ULONGLONG gNarrationFadeStartTime = 0;
 bool gIsNarrationBoxInteractive = false;
@@ -569,6 +615,7 @@ Gdiplus::Image* gTitleImage = nullptr;
 Gdiplus::Bitmap* gTrophyShadowImage = nullptr;
 constexpr int kCompletedFoodImageCount = 6;
 Gdiplus::Image* gCompletedFoodImages[kCompletedFoodImageCount]{};
+Gdiplus::Bitmap* gCompletedFoodShadowImages[kCompletedFoodImageCount]{};
 Gdiplus::Image* gFogImage = nullptr;
 HDC gBackBufferDc = nullptr;
 HBITMAP gBackBufferBitmap = nullptr;
@@ -1233,6 +1280,59 @@ void LoadMoneyImages() {
     for (int index = 0; index < kCompletedFoodImageCount; ++index) {
         gCompletedFoodImages[index] = LoadOptionalImage(
             completedFoodPaths[index]);
+        if (gCompletedFoodImages[index] == nullptr) {
+            continue;
+        }
+        const int shadowWidth = kCompletedFoodDisplayWidth
+            + kCompletedFoodShadowBlurRadius * 2;
+        const int shadowHeight = kCompletedFoodDisplayHeight
+            + kCompletedFoodShadowBlurRadius * 2;
+        Gdiplus::Bitmap* shadow = new Gdiplus::Bitmap(
+            shadowWidth, shadowHeight, PixelFormat32bppARGB);
+        if (shadow->GetLastStatus() != Gdiplus::Ok) {
+            delete shadow;
+            continue;
+        }
+        Gdiplus::Graphics graphics(shadow);
+        graphics.Clear(Gdiplus::Color(0, 0, 0, 0));
+        graphics.SetInterpolationMode(Gdiplus::InterpolationModeNearestNeighbor);
+        graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
+        constexpr int blurWeights[] = {1, 4, 6, 4, 1};
+        constexpr float totalBlurWeight = 256.0f;
+        for (int y = -kCompletedFoodShadowBlurRadius;
+             y <= kCompletedFoodShadowBlurRadius;
+             ++y) {
+            for (int x = -kCompletedFoodShadowBlurRadius;
+                 x <= kCompletedFoodShadowBlurRadius;
+                 ++x) {
+                const float alpha = 0.15f
+                    * blurWeights[x + kCompletedFoodShadowBlurRadius]
+                    * blurWeights[y + kCompletedFoodShadowBlurRadius]
+                    / totalBlurWeight;
+                Gdiplus::ColorMatrix matrix = {
+                    0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                    0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                    0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                    0.0f, 0.0f, 0.0f, alpha, 0.0f,
+                    0.0f, 0.0f, 0.0f, 0.0f, 1.0f
+                };
+                Gdiplus::ImageAttributes attributes;
+                attributes.SetColorMatrix(&matrix);
+                graphics.DrawImage(
+                    gCompletedFoodImages[index],
+                    Gdiplus::Rect(
+                        kCompletedFoodShadowBlurRadius + x,
+                        kCompletedFoodShadowBlurRadius + y,
+                        kCompletedFoodDisplayWidth,
+                        kCompletedFoodDisplayHeight),
+                    0, 0,
+                    kCompletedFoodSourceWidth,
+                    kCompletedFoodSourceHeight,
+                    Gdiplus::UnitPixel,
+                    &attributes);
+            }
+        }
+        gCompletedFoodShadowImages[index] = shadow;
     }
     gFogImage = LoadOptionalImage(L"materials\\fog.png");
     if (gTrophyImage != nullptr) {
@@ -1312,6 +1412,10 @@ void UnloadMaterialImages() {
 void UnloadMoneyImages() {
     delete gTrophyShadowImage;
     gTrophyShadowImage = nullptr;
+    for (Gdiplus::Bitmap*& image : gCompletedFoodShadowImages) {
+        delete image;
+        image = nullptr;
+    }
     for (Gdiplus::Image*& image : gCompletedFoodImages) {
         delete image;
         image = nullptr;
@@ -1800,6 +1904,27 @@ void DrawCompletionPresentation(HDC dc, const Layout& layout) {
         Gdiplus::Graphics graphics(dc);
         graphics.SetInterpolationMode(Gdiplus::InterpolationModeNearestNeighbor);
         graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
+        if (gCompletedFoodShadowImages[gCompletedFoodImageIndex] != nullptr) {
+            const RECT shadowArea = LogicalRect(
+                layout,
+                boardLeft
+                    + (kCuttingBoardWidth - kCompletedFoodDisplayWidth) / 2
+                    - kCompletedFoodShadowBlurRadius,
+                boardTop
+                    + (kCuttingBoardHeight - kCompletedFoodDisplayHeight) / 2
+                    - kCompletedFoodShadowBlurRadius,
+                kCompletedFoodDisplayWidth
+                    + kCompletedFoodShadowBlurRadius * 2,
+                kCompletedFoodDisplayHeight
+                    + kCompletedFoodShadowBlurRadius * 2);
+            graphics.DrawImage(
+                gCompletedFoodShadowImages[gCompletedFoodImageIndex],
+                Gdiplus::Rect(
+                    shadowArea.left,
+                    shadowArea.top,
+                    shadowArea.right - shadowArea.left,
+                    shadowArea.bottom - shadowArea.top));
+        }
         graphics.DrawImage(
             gCompletedFoodImages[gCompletedFoodImageIndex],
             Gdiplus::Rect(foodArea.left, foodArea.top,
@@ -3431,6 +3556,109 @@ void DrawObjectiveInterface(HDC dc, const Layout& layout) {
     DeleteObject(font);
 }
 
+bool IsOwnedMoneyInterfaceVisible() {
+    return gScreenState == ScreenState::PreparationFadingIn
+        || gScreenState == ScreenState::Preparation;
+}
+
+bool IsEarnedMoneyInterfaceVisible() {
+    return gScreenState == ScreenState::Countdown
+        || gScreenState == ScreenState::NpcEntering
+        || gScreenState == ScreenState::NarrationStarting
+        || gScreenState == ScreenState::Game
+        || gScreenState == ScreenState::EmptySubmissionReacting
+        || gScreenState == ScreenState::NpcExiting;
+}
+
+bool IsObjectiveInterfaceVisible() {
+    return IsEarnedMoneyInterfaceVisible();
+}
+
+void DrawMoneyTooltip(HDC dc, const Layout& layout) {
+    if (gHoveredMoneyTooltip == MoneyTooltipKind::None) {
+        return;
+    }
+    const wchar_t* title = L"";
+    const wchar_t* description = L"";
+    switch (gHoveredMoneyTooltip) {
+    case MoneyTooltipKind::Owned:
+        title = L"가진 돈";
+        description = L"- 벌어들인돈의 일부가 전환된다.";
+        break;
+    case MoneyTooltipKind::Earned:
+        title = L"벌어들인 돈";
+        description = L"- 매 판마다 벌어들인돈이 표시된다.";
+        break;
+    case MoneyTooltipKind::Objective:
+        title = L"목표 금액";
+        description = L"- 매일 달성해야 할 금액.";
+        break;
+    default:
+        return;
+    }
+
+    const auto measureText = [&](const wchar_t* text, double height) {
+        const HFONT font = CreateUiFont(layout, height, FW_NORMAL);
+        const HGDIOBJ oldFont = SelectObject(dc, font);
+        SIZE size{};
+        GetTextExtentPoint32W(
+            dc, text, static_cast<int>(wcslen(text)), &size);
+        SelectObject(dc, oldFont);
+        DeleteObject(font);
+        return SIZE{
+            static_cast<LONG>(std::ceil(size.cx / layout.scale)),
+            static_cast<LONG>(std::ceil(size.cy / layout.scale))};
+    };
+    const SIZE titleSize = measureText(title, 15.0);
+    const SIZE descriptionSize = measureText(description, 12.0);
+    constexpr int lineGap = 2;
+    const int tooltipWidth = (std::max)(
+        static_cast<int>(titleSize.cx),
+        static_cast<int>(descriptionSize.cx))
+        + kMoneyTooltipPadding * 2;
+    const int tooltipHeight = titleSize.cy + descriptionSize.cy
+        + lineGap + kMoneyTooltipPadding * 2;
+    const RECT anchor = gHoveredMoneyTooltip == MoneyTooltipKind::Objective
+        ? ObjectiveUiRect()
+        : MoneyUiRect();
+    int tooltipX = gHoveredMoneyTooltip == MoneyTooltipKind::Objective
+        ? anchor.right - tooltipWidth
+        : anchor.left;
+    int tooltipY = anchor.bottom + kMoneyTooltipGap;
+    tooltipX = std::clamp(tooltipX, 0, kDesignWidth - tooltipWidth);
+    tooltipY = std::clamp(tooltipY, 0, kDesignHeight - tooltipHeight);
+    const RECT tooltipArea{
+        tooltipX,
+        tooltipY,
+        tooltipX + tooltipWidth,
+        tooltipY + tooltipHeight};
+    FillSolid(
+        dc,
+        LogicalRect(
+            layout, tooltipX, tooltipY, tooltipWidth, tooltipHeight),
+        RGB(0x2a, 0x2a, 0x2a));
+    DrawCenteredText(
+        dc,
+        layout,
+        {tooltipArea.left + kMoneyTooltipPadding,
+         tooltipArea.top + kMoneyTooltipPadding,
+         tooltipArea.right - kMoneyTooltipPadding,
+         tooltipArea.top + kMoneyTooltipPadding + titleSize.cy},
+        title,
+        15.0,
+        RGB(0xff, 0xff, 0xff));
+    DrawCenteredText(
+        dc,
+        layout,
+        {tooltipArea.left + kMoneyTooltipPadding,
+         tooltipArea.top + kMoneyTooltipPadding + titleSize.cy + lineGap,
+         tooltipArea.right - kMoneyTooltipPadding,
+         tooltipArea.bottom - kMoneyTooltipPadding},
+        description,
+        12.0,
+        RGB(0xff, 0xff, 0xff));
+}
+
 void DrawStartBusinessButton(HDC dc, const Layout& layout, BYTE opacity) {
     const RECT logicalButton = StartBusinessButtonRect();
     const RECT button = LogicalRect(
@@ -4152,6 +4380,42 @@ RECT VolumeSliderHitRect() {
     };
 }
 
+RECT FontLicenseDropdownRect(int index) {
+    const int left = kFontLicenseDropdownLeft
+        + index * (kFontLicenseDropdownWidth + kFontLicenseDropdownGap);
+    return {
+        left,
+        kFontLicenseDropdownTop,
+        left + kFontLicenseDropdownWidth,
+        kFontLicenseDropdownTop + kFontLicenseDropdownHeight
+    };
+}
+
+void DrawFontLicenseText(
+    HDC dc,
+    const Layout& layout,
+    const RECT& logicalArea,
+    const wchar_t* text,
+    const wchar_t* fontName,
+    UINT format) {
+    const HFONT font = CreateUiFont(
+        layout, kFontLicenseTextHeight, FW_NORMAL, fontName);
+    const HGDIOBJ oldFont = SelectObject(dc, font);
+    const int oldBackgroundMode = SetBkMode(dc, TRANSPARENT);
+    const COLORREF oldTextColor = SetTextColor(dc, RGB(0xee, 0xee, 0xee));
+    RECT screenArea = LogicalRect(
+        layout,
+        logicalArea.left,
+        logicalArea.top,
+        logicalArea.right - logicalArea.left,
+        logicalArea.bottom - logicalArea.top);
+    DrawText(dc, text, -1, &screenArea, format | DT_NOPREFIX);
+    SetTextColor(dc, oldTextColor);
+    SetBkMode(dc, oldBackgroundMode);
+    SelectObject(dc, oldFont);
+    DeleteObject(font);
+}
+
 void DrawOptionsScreen(HDC dc, const RECT& client) {
     FillSolid(dc, client, kLetterboxColor);
     if (client.right <= client.left || client.bottom <= client.top) {
@@ -4161,7 +4425,7 @@ void DrawOptionsScreen(HDC dc, const RECT& client) {
     DrawCenteredText(
         dc, layout, OptionsBackButtonRect(), L"<", 32.0,
         RGB(0xff, 0xff, 0xff), FW_NORMAL, kTitleFontName);
-    const RECT titleArea{250, 240, 550, 290};
+    const RECT titleArea{250, 100, 550, 150};
     DrawCenteredText(
         dc, layout, titleArea, L"전체 음량", 30.0,
         RGB(0xff, 0xff, 0xff), FW_NORMAL, kTitleFontName);
@@ -4191,11 +4455,67 @@ void DrawOptionsScreen(HDC dc, const RECT& client) {
     DeleteObject(knobBrush);
 
     DrawCenteredText(
-        dc, layout, {220, 350, 280, 380}, L"0", 18.0,
+        dc, layout, {220, 210, 280, 240}, L"0", 18.0,
         RGB(0xff, 0xff, 0xff));
     DrawCenteredText(
-        dc, layout, {520, 350, 580, 380}, L"100", 18.0,
+        dc, layout, {520, 210, 580, 240}, L"100", 18.0,
         RGB(0xff, 0xff, 0xff));
+
+    constexpr wchar_t dropdownNames[2][16] = {
+        L"DOS Philgi",
+        L"PF Stardust"
+    };
+    constexpr const wchar_t* dropdownFonts[2] = {
+        kNarrationFontName,
+        kDefaultUiFontName
+    };
+    for (int index = 0; index < 2; ++index) {
+        const RECT dropdown = FontLicenseDropdownRect(index);
+        const RECT screenDropdown = LogicalRect(
+            layout,
+            dropdown.left,
+            dropdown.top,
+            dropdown.right - dropdown.left,
+            dropdown.bottom - dropdown.top);
+        FillSolid(dc, screenDropdown, RGB(0x20, 0x20, 0x20));
+        const HBRUSH borderBrush = CreateSolidBrush(RGB(0x70, 0x70, 0x70));
+        FrameRect(dc, &screenDropdown, borderBrush);
+        DeleteObject(borderBrush);
+        const std::wstring label =
+            (gExpandedFontLicenseDropdown == index ? L"▼  " : L"▶  ")
+            + std::wstring(dropdownNames[index]);
+        DrawFontLicenseText(
+            dc,
+            layout,
+            {dropdown.left + 10, dropdown.top,
+             dropdown.right - 10, dropdown.bottom},
+            label.c_str(),
+            dropdownFonts[index],
+            DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+    }
+
+    if (gExpandedFontLicenseDropdown >= 0) {
+        const RECT body{50, 294, 750, 580};
+        const RECT screenBody = LogicalRect(
+            layout,
+            body.left,
+            body.top,
+            body.right - body.left,
+            body.bottom - body.top);
+        FillSolid(dc, screenBody, RGB(0x18, 0x18, 0x18));
+        const HBRUSH borderBrush = CreateSolidBrush(RGB(0x70, 0x70, 0x70));
+        FrameRect(dc, &screenBody, borderBrush);
+        DeleteObject(borderBrush);
+        const bool isDosLicense = gExpandedFontLicenseDropdown == 0;
+        DrawFontLicenseText(
+            dc,
+            layout,
+            {body.left + 12, body.top + 10,
+             body.right - 12, body.bottom - 10},
+            isDosLicense ? kDosPhilgiLicenseText : kPfStardustLicenseText,
+            isDosLicense ? kNarrationFontName : kDefaultUiFontName,
+            DT_LEFT | DT_TOP | DT_WORDBREAK);
+    }
 }
 
 bool CanEnterCookingMode() {
@@ -4611,7 +4931,8 @@ RECT TutorialCheckboxRect() {
 }
 
 void StartPreGameMessage(ULONGLONG now) {
-    gPreGameMessageIndex = static_cast<int>(NextRandom() % 2);
+    gPreGameMessageIndex = static_cast<int>(
+        NextRandom() % std::size(kPreGameMessages));
     gPreGameMessageStartTime = now;
     gScreenState = ScreenState::PreGameMessage;
 }
@@ -4632,28 +4953,38 @@ void DrawPreGameMessage(HDC dc, const RECT& client) {
         opacity = 1.0 - SmoothStep(
             (elapsed - fadeOutStart) / kPreGameMessageFadeSeconds);
     }
-    constexpr wchar_t messages[2][32] = {
-        L"오늘은 어떤 진상이 올 것인가...",
-        L"정상적인 손님이 오시길..."
-    };
     const Layout layout = GetLayout(client);
     const RECT messageArea{
-        kPlayAreaX,
-        kPlayAreaY + kPlayAreaSize / 2 - 20,
-        kPlayAreaX + kPlayAreaSize,
-        kPlayAreaY + kPlayAreaSize / 2 + 20
+        20,
+        kDesignHeight / 2 - 30,
+        kDesignWidth - 20,
+        kDesignHeight / 2 + 30
     };
     const COLORREF textColor = BlendColor(
         kLetterboxColor,
         RGB(0xff, 0xff, 0xff),
         opacity);
-    DrawCenteredText(
-        dc,
+    const HFONT font = CreateUiFont(
+        layout, kPreGameMessageFontHeight, FW_NORMAL);
+    const HGDIOBJ oldFont = SelectObject(dc, font);
+    const int oldBackgroundMode = SetBkMode(dc, TRANSPARENT);
+    const COLORREF oldTextColor = SetTextColor(dc, textColor);
+    RECT screenArea = LogicalRect(
         layout,
-        messageArea,
-        messages[gPreGameMessageIndex],
-        kPreGameMessageFontHeight,
-        textColor);
+        messageArea.left,
+        messageArea.top,
+        messageArea.right - messageArea.left,
+        messageArea.bottom - messageArea.top);
+    DrawTextW(
+        dc,
+        kPreGameMessages[gPreGameMessageIndex],
+        -1,
+        &screenArea,
+        DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+    SetTextColor(dc, oldTextColor);
+    SetBkMode(dc, oldBackgroundMode);
+    SelectObject(dc, oldFont);
+    DeleteObject(font);
 }
 
 void DrawTutorialScreen(HDC dc, const RECT& client) {
@@ -4895,6 +5226,7 @@ void DrawApplication(HDC dc, const RECT& client) {
 
     // 별 파티클은 플레이 영역의 클리핑이 끝난 뒤 그려 검은 여백에서도 보이게 한다.
     DrawStarParticles(dc, layout);
+    DrawMoneyTooltip(dc, layout);
     DrawTrophyTooltip(dc, layout);
 }
 
@@ -5212,6 +5544,21 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
         if (wasTrophyHovered && !gIsTrophyHovered) {
             gTrophyInsufficientFundsStartTime = 0;
         }
+        const MoneyTooltipKind previousMoneyTooltip =
+            gHoveredMoneyTooltip;
+        gHoveredMoneyTooltip = MoneyTooltipKind::None;
+        const RECT moneyUi = MoneyUiRect();
+        const RECT objectiveUi = ObjectiveUiRect();
+        if (IsOwnedMoneyInterfaceVisible()
+            && PtInRect(&moneyUi, gMouseDesignPosition)) {
+            gHoveredMoneyTooltip = MoneyTooltipKind::Owned;
+        } else if (IsEarnedMoneyInterfaceVisible()
+            && PtInRect(&moneyUi, gMouseDesignPosition)) {
+            gHoveredMoneyTooltip = MoneyTooltipKind::Earned;
+        } else if (IsObjectiveInterfaceVisible()
+            && PtInRect(&objectiveUi, gMouseDesignPosition)) {
+            gHoveredMoneyTooltip = MoneyTooltipKind::Objective;
+        }
         if (gScreenState == ScreenState::Title) {
             gHoveredTitleButton = HitTestTitleButton(
                 gMouseDesignPosition.x,
@@ -5240,7 +5587,8 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
             gIsTrackingMouse = true;
         }
         UpdateMouseCursor(window, mouseX, mouseY);
-        if (wasTrophyHovered != gIsTrophyHovered) {
+        if (wasTrophyHovered != gIsTrophyHovered
+            || previousMoneyTooltip != gHoveredMoneyTooltip) {
             InvalidateRect(window, nullptr, FALSE);
         }
         const ULONGLONG now = GetTickCount64();
@@ -5277,8 +5625,12 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
         if (gScreenState == ScreenState::Options) {
             const RECT backButton = OptionsBackButtonRect();
             const RECT slider = VolumeSliderHitRect();
+            const RECT dosLicense = FontLicenseDropdownRect(0);
+            const RECT pfLicense = FontLicenseDropdownRect(1);
             if (PtInRect(&backButton, logicalMouse)
-                || PtInRect(&slider, logicalMouse)) {
+                || PtInRect(&slider, logicalMouse)
+                || PtInRect(&dosLicense, logicalMouse)
+                || PtInRect(&pfLicense, logicalMouse)) {
                 clickSound = SoundEffect::ButtonClick;
             }
         } else {
@@ -5340,6 +5692,8 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
         if (gScreenState == ScreenState::Options) {
             const RECT backButton = OptionsBackButtonRect();
             const RECT slider = VolumeSliderHitRect();
+            const RECT dosLicense = FontLicenseDropdownRect(0);
+            const RECT pfLicense = FontLicenseDropdownRect(1);
             if (PtInRect(&backButton, logicalMouse)) {
                 gScreenState = ScreenState::Title;
                 gTitleStartTime = GetTickCount64();
@@ -5348,6 +5702,12 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
                 gIsVolumeSliderDragging = true;
                 SetCapture(window);
                 UpdateMasterVolumeFromSlider(designX);
+            } else if (PtInRect(&dosLicense, logicalMouse)) {
+                gExpandedFontLicenseDropdown =
+                    gExpandedFontLicenseDropdown == 0 ? -1 : 0;
+            } else if (PtInRect(&pfLicense, logicalMouse)) {
+                gExpandedFontLicenseDropdown =
+                    gExpandedFontLicenseDropdown == 1 ? -1 : 1;
             }
             InvalidateRect(window, nullptr, FALSE);
             return 0;
@@ -5516,6 +5876,7 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
     case WM_MOUSELEAVE:
         gIsTrackingMouse = false;
         gIsTrophyHovered = false;
+        gHoveredMoneyTooltip = MoneyTooltipKind::None;
         gTrophyInsufficientFundsStartTime = 0;
         gIsTableHovered = false;
         gHoveredPngSocket = -1;
@@ -5928,6 +6289,20 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
     windowClass.style = CS_HREDRAW | CS_VREDRAW;
     windowClass.lpfnWndProc = WindowProcedure;
     windowClass.hInstance = instance;
+    windowClass.hIcon = static_cast<HICON>(LoadImage(
+        instance,
+        MAKEINTRESOURCE(101),
+        IMAGE_ICON,
+        GetSystemMetrics(SM_CXICON),
+        GetSystemMetrics(SM_CYICON),
+        LR_DEFAULTCOLOR));
+    windowClass.hIconSm = static_cast<HICON>(LoadImage(
+        instance,
+        MAKEINTRESOURCE(101),
+        IMAGE_ICON,
+        GetSystemMetrics(SM_CXSMICON),
+        GetSystemMetrics(SM_CYSMICON),
+        LR_DEFAULTCOLOR));
     windowClass.hCursor = LoadCursor(nullptr, IDC_ARROW);
     windowClass.hbrBackground = static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH));
     windowClass.lpszClassName = kWindowClass;
@@ -5963,7 +6338,6 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
         return 1;
     }
 
-    gTitleStartTime = GetTickCount64();
     if (SetTimer(
             window,
             kAnimationTimerId,
@@ -5982,6 +6356,9 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
         return 1;
     }
     InitializeSoundSystem(window);
+    // 이미지와 MP3 준비 시간이 페이드 시간에 포함되지 않도록 실제 창을
+    // 표시하기 직전에 타이틀 애니메이션 기준 시각을 기록한다.
+    gTitleStartTime = GetTickCount64();
     ShowWindow(window, showCommand);
     UpdateWindow(window);
 

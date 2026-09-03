@@ -1,0 +1,5 @@
+font_pixel_size=32
+cell_width=40
+cell_height=44
+columns=16
+glyph_count=602
