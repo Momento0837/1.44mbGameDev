@@ -83,8 +83,8 @@ constexpr int kCuttingBoardBorderWidth = 2;
 constexpr int kMaximumMaterialClones = 64;
 constexpr int kCompletedFoodSourceWidth = 32;
 constexpr int kCompletedFoodSourceHeight = 16;
-constexpr int kCompletedFoodDisplayWidth = 64;
-constexpr int kCompletedFoodDisplayHeight = 32;
+constexpr int kCompletedFoodDisplayWidth = kCompletedFoodSourceWidth * 3;
+constexpr int kCompletedFoodDisplayHeight = kCompletedFoodSourceHeight * 3;
 constexpr int kCompletedFoodShadowBlurRadius = 2;
 constexpr double kCompletionPresentationSeconds = 1.2;
 constexpr double kFogFallDistance = 50.0;
@@ -102,6 +102,11 @@ constexpr int kNarrationBoxX = 10;
 constexpr int kNarrationBoxY = 10;
 constexpr int kNarrationBoxWidth = kDesignWidth - 20;
 constexpr int kNarrationBoxHeight = 160;
+constexpr int kNarrationContinueIndicatorWidth = 14;
+constexpr int kNarrationContinueIndicatorHeight = 8;
+constexpr int kNarrationContinueIndicatorMargin = 10;
+constexpr double kNarrationContinueIndicatorBobDistance = 4.0;
+constexpr double kNarrationContinueIndicatorHalfCycleSeconds = 0.5;
 constexpr ULONGLONG kNarrationCharacterIntervalMilliseconds = 80;
 constexpr double kNarrationAutoAdvanceSeconds = 2.0;
 constexpr int kMaximumNarrationParticles = 128;
@@ -189,6 +194,8 @@ constexpr int kMoneyFontHeight = 24;
 constexpr int kMoneyTooltipPadding = 5;
 constexpr int kMoneyTooltipGap = 12;
 constexpr long long kInitialDailyRevenueGoal = 1000;
+constexpr int kDailyRevenueGoalMultiplierTenths = 18;
+constexpr int kMetaCurrencyConversionPercent = 1;
 struct CustomerCategoryReward {
     const wchar_t* id;
     int baseReward;
@@ -280,7 +287,7 @@ constexpr double kPreGameMessageFadeSeconds = 1;
 constexpr double kPreGameMessageHoldSeconds = 2.0;
 constexpr double kPreGameMessageFontHeight = 20.0;
 constexpr wchar_t kPreGameMessages[4][64] = {
-    L"\"오늘의 목표는 매출이다. 부차적인 목표는 화내지 않는 것이다.\"",
+    L"\"오늘의 목표는 매출이다. 부가적인 목표는 화내지 않는 것이다.\"",
     L"\"세상에는 두 종류의 손님이 있다. 설명하는 손님과 설명했다고 믿는 손님.\"",
     L"\"나는 요리를 한다. 왜 추리를 하고 있는지는 모르겠다.\"",
     L"\"심연을 들여다보면 심연도 나를 본다. 손님 주문서를 보면 더하다.\""
@@ -395,12 +402,28 @@ enum class ScreenState {
     Settlement
 };
 ScreenState gScreenState = ScreenState::Title;
+
+bool IsGameSessionScreen() {
+    return gScreenState == ScreenState::PreparationFadingIn
+        || gScreenState == ScreenState::Preparation
+        || gScreenState == ScreenState::Countdown
+        || gScreenState == ScreenState::NpcEntering
+        || gScreenState == ScreenState::NarrationStarting
+        || gScreenState == ScreenState::Game
+        || gScreenState == ScreenState::EmptySubmissionReacting
+        || gScreenState == ScreenState::NpcExiting
+        || gScreenState == ScreenState::BusinessClosing
+        || gScreenState == ScreenState::Settlement;
+}
+
 ULONGLONG gTitleStartTime = 0;
 ULONGLONG gScreenTransitionStartTime = 0;
 int gHoveredTitleButton = -1;
 double gTitleButtonScales[3]{1.0, 1.0, 1.0};
 RECT gTitleButtonRects[3]{};
 bool gIsExitDialogVisible = false;
+bool gIsReturnToTitleDialogVisible = false;
+ULONGLONG gReturnToTitleDialogStartTime = 0;
 bool gIsVolumeSliderDragging = false;
 int gExpandedFontLicenseDropdown = -1;
 ULONGLONG gPreparationSequenceStartTime = 0;
@@ -472,6 +495,11 @@ std::vector<FogParticle> gFogParticles;
 bool gIsCompletionPresentationActive = false;
 ULONGLONG gCompletionPresentationStartTime = 0;
 int gCompletedFoodImageIndex = -1;
+struct CompletedFoodInstance {
+    int offsetX;
+    int offsetY;
+};
+std::vector<CompletedFoodInstance> gCompletedFoodInstances;
 struct StarParticle {
     double x;
     double y;
@@ -539,6 +567,7 @@ int gBusinessMusicFadeStep = -1;
 void PlaySoundEffect(SoundEffect effect);
 void StartBusinessMusic();
 void BeginBusinessMusicFadeOut(ULONGLONG now);
+void StopBusinessMusic();
 bool gIsNarrationActive = false;
 bool gIsNarrationTyping = false;
 ULONGLONG gNarrationStartTime = 0;
@@ -596,6 +625,7 @@ bool gIsHoverNarrationActive = false;
 bool gWasNarrationRestoredFromHover = false;
 int gCurrentDialogueCategory = -1;
 int gCurrentDialogueTree = -1;
+std::wstring gPreviousDialogueMenuName;
 DialogueStage gCurrentDialogueStage = DialogueStage::Entry;
 size_t gCurrentDialogueLineIndex = 0;
 int gLastNarrationHoverSocket = -1;
@@ -617,6 +647,16 @@ constexpr int kCompletedFoodImageCount = 6;
 Gdiplus::Image* gCompletedFoodImages[kCompletedFoodImageCount]{};
 Gdiplus::Bitmap* gCompletedFoodShadowImages[kCompletedFoodImageCount]{};
 Gdiplus::Image* gFogImage = nullptr;
+struct BitmapFont {
+    Gdiplus::Image* atlas = nullptr;
+    std::wstring characters;
+    std::vector<double> advances;
+    int cellWidth = 40;
+    int cellHeight = 44;
+    int columns = 16;
+};
+BitmapFont gUiBitmapFont;
+BitmapFont gNarrationBitmapFont;
 HDC gBackBufferDc = nullptr;
 HBITMAP gBackBufferBitmap = nullptr;
 HGDIOBJ gBackBufferOldBitmap = nullptr;
@@ -1530,6 +1570,197 @@ POINT LogicalPoint(const Layout& layout, double x, double y) {
     };
 }
 
+bool LoadBitmapFont(BitmapFont& font, const wchar_t* baseName) {
+    const std::wstring basePath = gAssetsDirectory + L"fonts\\" + baseName;
+    std::ifstream mapFile(basePath + L".chars.txt", std::ios::binary);
+    if (!mapFile) {
+        return false;
+    }
+    const std::string utf8Characters(
+        (std::istreambuf_iterator<char>(mapFile)),
+        std::istreambuf_iterator<char>());
+    font.characters = Utf8ToWide(utf8Characters);
+    std::ifstream widthsFile(basePath + L".widths.txt");
+    double advance = 0.0;
+    while (widthsFile >> advance) {
+        font.advances.push_back(advance);
+    }
+    font.atlas = Gdiplus::Image::FromFile((basePath + L".png").c_str(), FALSE);
+    if (font.characters.empty()
+        || font.advances.size() != font.characters.size()
+        || font.atlas == nullptr
+        || font.atlas->GetLastStatus() != Gdiplus::Ok) {
+        delete font.atlas;
+        font.atlas = nullptr;
+        font.characters.clear();
+        font.advances.clear();
+        return false;
+    }
+    return true;
+}
+
+void LoadBitmapFonts() {
+    LoadBitmapFont(gUiBitmapFont, L"pf_stardust_32");
+    LoadBitmapFont(gNarrationBitmapFont, L"dos_pilgi_32");
+}
+
+void UnloadBitmapFonts() {
+    delete gUiBitmapFont.atlas;
+    gUiBitmapFont.atlas = nullptr;
+    gUiBitmapFont.characters.clear();
+    gUiBitmapFont.advances.clear();
+    delete gNarrationBitmapFont.atlas;
+    gNarrationBitmapFont.atlas = nullptr;
+    gNarrationBitmapFont.characters.clear();
+    gNarrationBitmapFont.advances.clear();
+}
+
+const BitmapFont& BitmapFontForName(const wchar_t* fontName) {
+    return fontName != nullptr && wcscmp(fontName, kNarrationFontName) == 0
+        ? gNarrationBitmapFont
+        : gUiBitmapFont;
+}
+
+double BitmapGlyphAdvance(const BitmapFont& font, wchar_t character,
+                          double fontHeight) {
+    const size_t glyphIndex = font.characters.find(character);
+    if (glyphIndex != std::wstring::npos
+        && glyphIndex < font.advances.size()) {
+        return font.advances[glyphIndex] * fontHeight / 32.0;
+    }
+    return fontHeight;
+}
+
+double MeasureBitmapText(const BitmapFont& font, const wchar_t* text,
+                         double fontHeight, size_t length = SIZE_MAX) {
+    if (text == nullptr) {
+        return 0.0;
+    }
+    const size_t textLength = wcslen(text);
+    length = (std::min)(length, textLength);
+    double width = 0.0;
+    for (size_t index = 0; index < length; ++index) {
+        if (text[index] != L'\r' && text[index] != L'\n') {
+            width += BitmapGlyphAdvance(font, text[index], fontHeight);
+        }
+    }
+    return width;
+}
+
+void DrawBitmapText(HDC dc, const Layout& layout, double logicalX,
+                    double logicalY, const wchar_t* text, double fontHeight,
+                    COLORREF color, const wchar_t* fontName,
+                    size_t length = SIZE_MAX) {
+    const BitmapFont& font = BitmapFontForName(fontName);
+    if (font.atlas == nullptr || text == nullptr) {
+        return;
+    }
+    const size_t textLength = wcslen(text);
+    length = (std::min)(length, textLength);
+    Gdiplus::Graphics graphics(dc);
+    graphics.SetInterpolationMode(Gdiplus::InterpolationModeNearestNeighbor);
+    graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
+    Gdiplus::ColorMatrix matrix = {
+        GetRValue(color) / 255.0f, 0, 0, 0, 0,
+        0, GetGValue(color) / 255.0f, 0, 0, 0,
+        0, 0, GetBValue(color) / 255.0f, 0, 0,
+        0, 0, 0, 1, 0,
+        0, 0, 0, 0, 1
+    };
+    Gdiplus::ImageAttributes attributes;
+    attributes.SetColorMatrix(&matrix);
+    double x = logicalX;
+    double y = logicalY;
+    // 아틀라스는 32px 원본 글꼴로 생성되었으므로 글자 그림은 32px을
+    // 기준으로 확대하고, 정렬/줄 높이는 기존 fontHeight를 그대로 쓴다.
+    const double cellScale = fontHeight / 32.0;
+    for (size_t textIndex = 0; textIndex < length; ++textIndex) {
+        const wchar_t character = text[textIndex];
+        if (character == L'\r') {
+            continue;
+        }
+        if (character == L'\n') {
+            x = logicalX;
+            y += font.cellHeight * cellScale;
+            continue;
+        }
+        const size_t glyphIndex = font.characters.find(character);
+        if (glyphIndex != std::wstring::npos && character != L' ') {
+            const int sourceX = static_cast<int>(glyphIndex % font.columns)
+                * font.cellWidth;
+            const int sourceY = static_cast<int>(glyphIndex / font.columns)
+                * font.cellHeight;
+            const RECT destination = LogicalRect(
+                layout,
+                static_cast<int>(std::lround(x)),
+                static_cast<int>(std::lround(y)),
+                static_cast<int>(std::lround(font.cellWidth * cellScale)),
+                static_cast<int>(std::lround(font.cellHeight * cellScale)));
+            graphics.DrawImage(
+                font.atlas,
+                Gdiplus::Rect(destination.left, destination.top,
+                    destination.right - destination.left,
+                    destination.bottom - destination.top),
+                sourceX, sourceY, font.cellWidth, font.cellHeight,
+                Gdiplus::UnitPixel, &attributes);
+        }
+        x += BitmapGlyphAdvance(font, character, fontHeight);
+    }
+}
+
+void DrawBitmapTextInRect(HDC dc, const Layout& layout,
+                          const RECT& area, const wchar_t* text,
+                          double fontHeight, COLORREF color,
+                          const wchar_t* fontName, UINT format) {
+    const BitmapFont& font = BitmapFontForName(fontName);
+    if (font.atlas == nullptr || text == nullptr) {
+        return;
+    }
+    std::vector<std::wstring> lines;
+    std::wstring line;
+    const double maximumWidth = area.right - area.left;
+    for (const wchar_t* cursor = text; ; ++cursor) {
+        const wchar_t character = *cursor;
+        const bool explicitBreak = character == L'\n' || character == L'\0';
+        const bool wraps = (format & DT_WORDBREAK) != 0
+            && !line.empty() && !explicitBreak
+            && MeasureBitmapText(font, (line + character).c_str(), fontHeight)
+                > maximumWidth;
+        if (wraps || explicitBreak) {
+            lines.push_back(line);
+            line.clear();
+        }
+        if (character == L'\0') {
+            break;
+        }
+        if (character != L'\r' && character != L'\n') {
+            line.push_back(character);
+        }
+    }
+    const double lineHeight = fontHeight;
+    const double totalHeight = lineHeight * lines.size();
+    double y = area.top;
+    if ((format & DT_VCENTER) != 0) {
+        y += ((area.bottom - area.top) - totalHeight) / 2.0;
+    }
+    for (const std::wstring& currentLine : lines) {
+        const double width = MeasureBitmapText(
+            font, currentLine.c_str(), fontHeight);
+        double x = area.left;
+        if ((format & DT_CENTER) != 0) {
+            x += ((area.right - area.left) - width) / 2.0;
+        } else if ((format & DT_RIGHT) != 0) {
+            x = area.right - width;
+        }
+        DrawBitmapText(dc, layout, x, y, currentLine.c_str(), fontHeight,
+            color, fontName);
+        y += lineHeight;
+        if (y >= area.bottom) {
+            break;
+        }
+    }
+}
+
 void FillPolygon(HDC dc, POINT* points, int pointCount, COLORREF color) {
     const HBRUSH brush = CreateSolidBrush(color);
     const HGDIOBJ oldBrush = SelectObject(dc, brush);
@@ -1847,8 +2078,9 @@ void StartCompletionPresentation() {
     const bool hasSeaweed = RecipeContainsMaterial(*tree, L"seaweed_and_rice");
     const bool hasMint = RecipeContainsMaterial(*tree, L"mint_chocolate");
     const bool hasTortilla = RecipeContainsMaterial(*tree, L"tortilla");
-    if (tree->menuName == L"kimbopx10"
-        || tree->menuName == L"kimbop_x10") {
+    const bool isKimbopX10 = tree->menuName == L"kimbopx10"
+        || tree->menuName == L"kimbop_x10";
+    if (isKimbopX10) {
         gCompletedFoodImageIndex = 2;
     } else if (tree->menuName == L"mint_chocolate") {
         gCompletedFoodImageIndex = 5;
@@ -1860,6 +2092,38 @@ void StartCompletionPresentation() {
         gCompletedFoodImageIndex = 3;
     } else {
         gCompletedFoodImageIndex = 4;
+    }
+
+    gCompletedFoodInstances.clear();
+    if (isKimbopX10) {
+        CompletedFoodInstance positions[5]{
+            {kCompletedFoodShadowBlurRadius,
+             kCompletedFoodShadowBlurRadius},
+            {kCuttingBoardWidth - kCompletedFoodDisplayWidth
+                 - kCompletedFoodShadowBlurRadius,
+             kCuttingBoardHeight - kCompletedFoodDisplayHeight
+                 - kCompletedFoodShadowBlurRadius},
+            {kCompletedFoodShadowBlurRadius,
+             kCuttingBoardHeight - kCompletedFoodDisplayHeight
+                 - kCompletedFoodShadowBlurRadius},
+            {kCuttingBoardWidth - kCompletedFoodDisplayWidth
+                 - kCompletedFoodShadowBlurRadius,
+             kCompletedFoodShadowBlurRadius},
+            {(kCuttingBoardWidth - kCompletedFoodDisplayWidth) / 2,
+             (kCuttingBoardHeight - kCompletedFoodDisplayHeight) / 2}
+        };
+        for (int index = 4; index > 0; --index) {
+            std::swap(positions[index],
+                positions[NextRandom() % (index + 1)]);
+        }
+        const int completedFoodCount = RandomRange(3, 5);
+        gCompletedFoodInstances.assign(
+            positions, positions + completedFoodCount);
+    } else {
+        gCompletedFoodInstances.push_back({
+            (kCuttingBoardWidth - kCompletedFoodDisplayWidth) / 2,
+            (kCuttingBoardHeight - kCompletedFoodDisplayHeight) / 2
+        });
     }
 
     gFogParticles.clear();
@@ -1895,43 +2159,45 @@ void DrawCompletionPresentation(HDC dc, const Layout& layout) {
     if (gCompletedFoodImageIndex >= 0
         && gCompletedFoodImageIndex < kCompletedFoodImageCount
         && gCompletedFoodImages[gCompletedFoodImageIndex] != nullptr) {
-        const RECT foodArea = LogicalRect(
-            layout,
-            boardLeft + (kCuttingBoardWidth - kCompletedFoodDisplayWidth) / 2,
-            boardTop + (kCuttingBoardHeight - kCompletedFoodDisplayHeight) / 2,
-            kCompletedFoodDisplayWidth,
-            kCompletedFoodDisplayHeight);
         Gdiplus::Graphics graphics(dc);
         graphics.SetInterpolationMode(Gdiplus::InterpolationModeNearestNeighbor);
         graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
-        if (gCompletedFoodShadowImages[gCompletedFoodImageIndex] != nullptr) {
-            const RECT shadowArea = LogicalRect(
+        for (const CompletedFoodInstance& instance
+             : gCompletedFoodInstances) {
+            const RECT foodArea = LogicalRect(
                 layout,
-                boardLeft
-                    + (kCuttingBoardWidth - kCompletedFoodDisplayWidth) / 2
-                    - kCompletedFoodShadowBlurRadius,
-                boardTop
-                    + (kCuttingBoardHeight - kCompletedFoodDisplayHeight) / 2
-                    - kCompletedFoodShadowBlurRadius,
-                kCompletedFoodDisplayWidth
-                    + kCompletedFoodShadowBlurRadius * 2,
-                kCompletedFoodDisplayHeight
-                    + kCompletedFoodShadowBlurRadius * 2);
+                boardLeft + instance.offsetX,
+                boardTop + instance.offsetY,
+                kCompletedFoodDisplayWidth,
+                kCompletedFoodDisplayHeight);
+            if (gCompletedFoodShadowImages[gCompletedFoodImageIndex]
+                != nullptr) {
+                const RECT shadowArea = LogicalRect(
+                    layout,
+                    boardLeft + instance.offsetX
+                        - kCompletedFoodShadowBlurRadius,
+                    boardTop + instance.offsetY
+                        - kCompletedFoodShadowBlurRadius,
+                    kCompletedFoodDisplayWidth
+                        + kCompletedFoodShadowBlurRadius * 2,
+                    kCompletedFoodDisplayHeight
+                        + kCompletedFoodShadowBlurRadius * 2);
+                graphics.DrawImage(
+                    gCompletedFoodShadowImages[gCompletedFoodImageIndex],
+                    Gdiplus::Rect(
+                        shadowArea.left,
+                        shadowArea.top,
+                        shadowArea.right - shadowArea.left,
+                        shadowArea.bottom - shadowArea.top));
+            }
             graphics.DrawImage(
-                gCompletedFoodShadowImages[gCompletedFoodImageIndex],
-                Gdiplus::Rect(
-                    shadowArea.left,
-                    shadowArea.top,
-                    shadowArea.right - shadowArea.left,
-                    shadowArea.bottom - shadowArea.top));
+                gCompletedFoodImages[gCompletedFoodImageIndex],
+                Gdiplus::Rect(foodArea.left, foodArea.top,
+                    foodArea.right - foodArea.left,
+                    foodArea.bottom - foodArea.top),
+                0, 0, kCompletedFoodSourceWidth, kCompletedFoodSourceHeight,
+                Gdiplus::UnitPixel);
         }
-        graphics.DrawImage(
-            gCompletedFoodImages[gCompletedFoodImageIndex],
-            Gdiplus::Rect(foodArea.left, foodArea.top,
-                foodArea.right - foodArea.left,
-                foodArea.bottom - foodArea.top),
-            0, 0, kCompletedFoodSourceWidth, kCompletedFoodSourceHeight,
-            Gdiplus::UnitPixel);
     }
     if (gFogImage == nullptr) {
         return;
@@ -2578,8 +2844,30 @@ void StartRandomDialogueTree() {
     }
     const DialogueCategory& category =
         gDialogueCategories[gCurrentDialogueCategory];
+    if (category.menus.empty()) {
+        return;
+    }
+    int excludedMenuIndex = -1;
+    if (category.menus.size() > 1
+        && !gPreviousDialogueMenuName.empty()) {
+        for (size_t index = 0; index < category.menus.size(); ++index) {
+            if (category.menus[index].menuName
+                == gPreviousDialogueMenuName) {
+                excludedMenuIndex = static_cast<int>(index);
+                break;
+            }
+        }
+    }
+    const int availableMenuCount = static_cast<int>(category.menus.size())
+        - (excludedMenuIndex >= 0 ? 1 : 0);
     gCurrentDialogueTree = static_cast<int>(
-        NextRandom() % category.menus.size());
+        NextRandom() % availableMenuCount);
+    if (excludedMenuIndex >= 0
+        && gCurrentDialogueTree >= excludedMenuIndex) {
+        ++gCurrentDialogueTree;
+    }
+    gPreviousDialogueMenuName =
+        category.menus[gCurrentDialogueTree].menuName;
     gCurrentDialogueStage = DialogueStage::Entry;
     gCurrentDialogueLineIndex = 0;
     gLastNarrationHoverSocket = -1;
@@ -2754,16 +3042,11 @@ int RewardErrorCount(int actualErrorCount) {
         actualErrorCount - (gIsTrophyPurchased ? 1 : 0));
 }
 
-constexpr long long CalculateNextDailyRevenueGoal(
-    long long currentGoal,
-    bool goalMet) {
-    const int multiplierTenths = goalMet ? 11 : 12;
-    return (currentGoal * multiplierTenths + 5) / 10;
+constexpr long long CalculateDailyRevenueGoal(long long earnedMoney) {
+    return (earnedMoney * kDailyRevenueGoalMultiplierTenths + 5) / 10;
 }
 
-static_assert(CalculateNextDailyRevenueGoal(1000, true) == 1100);
-static_assert(CalculateNextDailyRevenueGoal(1100, true) == 1210);
-static_assert(CalculateNextDailyRevenueGoal(1000, false) == 1200);
+static_assert(CalculateDailyRevenueGoal(1000) == 1800);
 
 int CurrentOrderBaseReward() {
     if (gCurrentDialogueCategory < 0
@@ -3019,9 +3302,7 @@ void StartSettlement(ULONGLONG now) {
 }
 
 void StartNextDay(ULONGLONG now) {
-    gDailyRevenueGoal = CalculateNextDailyRevenueGoal(
-        gDailyRevenueGoal,
-        gCurrentDayGoalMet);
+    gDailyRevenueGoal = CalculateDailyRevenueGoal(gEarnedMoney);
     ++gCurrentDay;
     gDayRevenue = 0;
     for (long long& revenue : gDayMenuRevenue) {
@@ -3107,6 +3388,66 @@ void DrawNarrationParticles(HDC dc, const Layout& layout) {
 
 void DrawNarration(HDC dc, const Layout& layout) {
     if (!gIsNarrationActive) {
+        return;
+    }
+
+    if (gNarrationBitmapFont.atlas != nullptr) {
+        constexpr double nameHeight = 18.0;
+        constexpr double dialogueHeight = 22.0;
+        const double nameX = kNarrationBoxX + 24.0;
+        const double nameY = kNarrationBoxY + 20.0;
+        const double textX = kNarrationBoxX + 24.0;
+        const double textY = kNarrationBoxY + 62.0;
+        DrawBitmapText(
+            dc, layout, nameX, nameY, gCurrentNarrationName.c_str(),
+            nameHeight, RGB(0xff, 0xff, 0xff), kNarrationFontName);
+
+        const double fullTextWidth = MeasureBitmapText(
+            gNarrationBitmapFont, gCurrentNarrationText.c_str(),
+            dialogueHeight);
+        const double textRightEdge = kNarrationBoxX
+            + kNarrationBoxWidth - 24.0;
+        const bool shouldAnimateOverflow = gIsNarrationTyping
+            && textX + fullTextWidth > textRightEdge;
+        gIsNarrationOverflowAnimating = shouldAnimateOverflow;
+        const size_t visibleLength = (std::min)(
+            gNarrationVisibleLength, gCurrentNarrationText.size());
+        if (!shouldAnimateOverflow) {
+            gNarrationParticles.clear();
+            gNarrationParticleProcessedLength = visibleLength;
+            DrawBitmapText(
+                dc, layout, textX, textY, gCurrentNarrationText.c_str(),
+                dialogueHeight, RGB(0xff, 0xff, 0xff),
+                kNarrationFontName, visibleLength);
+        } else {
+            const ULONGLONG now = GetTickCount64();
+            const size_t firstNewCharacter = (std::min)(
+                gNarrationParticleProcessedLength, visibleLength);
+            double characterX = textX;
+            for (size_t index = 0; index < visibleLength; ++index) {
+                const wchar_t character = gCurrentNarrationText[index];
+                const double advance = BitmapGlyphAdvance(
+                    gNarrationBitmapFont, character, dialogueHeight);
+                if (index >= firstNewCharacter) {
+                    AddNarrationParticle(
+                        characterX + advance, textY + dialogueHeight);
+                }
+                unsigned int jitterSeed = static_cast<unsigned int>(
+                    now / 40 + index * 0x9e3779b9u);
+                jitterSeed ^= jitterSeed >> 16;
+                const int jitterX = static_cast<int>(jitterSeed % 3) - 1;
+                jitterSeed = jitterSeed * 1664525u + 1013904223u;
+                const int jitterY = static_cast<int>(jitterSeed % 3) - 1;
+                wchar_t glyph[2]{character, L'\0'};
+                DrawBitmapText(
+                    dc, layout, characterX + jitterX, textY + jitterY,
+                    glyph, dialogueHeight, RGB(0xff, 0xff, 0xff),
+                    kNarrationFontName, 1);
+                characterX += advance;
+            }
+            gNarrationParticleProcessedLength = visibleLength;
+            DrawNarrationParticles(dc, layout);
+        }
         return;
     }
 
@@ -3295,6 +3636,18 @@ void DrawCenteredText(
     COLORREF color,
     int weight,
     const wchar_t* fontName) {
+    const BitmapFont& bitmapFont = BitmapFontForName(fontName);
+    if (bitmapFont.atlas != nullptr) {
+        const double textWidth = MeasureBitmapText(
+            bitmapFont, text, fontHeight);
+        const double textHeight = fontHeight;
+        const double x = logicalArea.left
+            + ((logicalArea.right - logicalArea.left) - textWidth) / 2.0;
+        const double y = logicalArea.top
+            + ((logicalArea.bottom - logicalArea.top) - textHeight) / 2.0;
+        DrawBitmapText(dc, layout, x, y, text, fontHeight, color, fontName);
+        return;
+    }
     const HFONT font = CreateUiFont(layout, fontHeight, weight, fontName);
     const HGDIOBJ oldFont = SelectObject(dc, font);
     const int oldBackgroundMode = SetBkMode(dc, TRANSPARENT);
@@ -3378,6 +3731,41 @@ double NarrationBoxOpacity() {
     return SmoothStep(elapsed / kNarrationFadeInSeconds);
 }
 
+void DrawNarrationContinueIndicator(HDC dc, const Layout& layout) {
+    if (!gIsNarrationActive || gNarrationFadeStartTime == 0) {
+        return;
+    }
+    constexpr double pi = 3.14159265358979323846;
+    const double elapsedSeconds = (
+        GetTickCount64() - gNarrationFadeStartTime) / 1000.0;
+    const double cycleSeconds =
+        kNarrationContinueIndicatorHalfCycleSeconds * 2.0;
+    const double phase = elapsedSeconds / cycleSeconds * pi * 2.0;
+    const double bobOffset = -kNarrationContinueIndicatorBobDistance
+        * (0.5 - 0.5 * std::cos(phase));
+    const double right = kNarrationBoxX + kNarrationBoxWidth
+        - kNarrationContinueIndicatorMargin;
+    const double bottom = kNarrationBoxY + kNarrationBoxHeight
+        - kNarrationContinueIndicatorMargin + bobOffset;
+    const double left = right - kNarrationContinueIndicatorWidth;
+    const double top = bottom - kNarrationContinueIndicatorHeight;
+    POINT triangle[3]{
+        LogicalPoint(layout, left, top),
+        LogicalPoint(layout, right, top),
+        LogicalPoint(layout, (left + right) * 0.5, bottom)
+    };
+    const HPEN pen = CreatePen(
+        PS_SOLID,
+        (std::max)(1, static_cast<int>(std::lround(layout.scale))),
+        RGB(0xff, 0xff, 0xff));
+    const HGDIOBJ oldPen = SelectObject(dc, pen);
+    const HGDIOBJ oldBrush = SelectObject(dc, GetStockObject(NULL_BRUSH));
+    Polygon(dc, triangle, 3);
+    SelectObject(dc, oldBrush);
+    SelectObject(dc, oldPen);
+    DeleteObject(pen);
+}
+
 void DrawNarrationOverlay(
     HDC dc,
     const RECT& client,
@@ -3399,6 +3787,7 @@ void DrawNarrationOverlay(
                 RGB(0x2a, 0x2a, 0x2a),
                 222);
             DrawNarration(targetDc, layout);
+            DrawNarrationContinueIndicator(targetDc, layout);
         });
 }
 
@@ -4018,6 +4407,12 @@ bool IsClickableAt(HWND window, int mouseX, int mouseY) {
     const POINT logicalPoint{designX, designY};
     const POINT screenPoint{mouseX, mouseY};
 
+    if (gIsReturnToTitleDialogVisible) {
+        const RECT yesButton = ExitDialogButtonRect(true);
+        const RECT noButton = ExitDialogButtonRect(false);
+        return PtInRect(&yesButton, logicalPoint)
+            || PtInRect(&noButton, logicalPoint);
+    }
     if (gScreenState == ScreenState::Title && IsTitleInteractive()) {
         if (gIsExitDialogVisible) {
             const RECT yesButton = ExitDialogButtonRect(true);
@@ -4129,7 +4524,10 @@ int HitTestTitleButton(int designX, int designY) {
     return -1;
 }
 
-void DrawExitDialog(HDC dc, const Layout& layout) {
+void DrawConfirmationDialog(
+    HDC dc,
+    const Layout& layout,
+    bool isReturnToTitleDialog) {
     const RECT logicalDialog = ExitDialogRect();
     const RECT dialog = LogicalRect(
         layout,
@@ -4142,19 +4540,38 @@ void DrawExitDialog(HDC dc, const Layout& layout) {
     FrameRect(dc, &dialog, borderBrush);
     DeleteObject(borderBrush);
 
-    const RECT questionArea{
-        logicalDialog.left + 10,
-        logicalDialog.top + 36,
-        logicalDialog.right - 10,
-        logicalDialog.top + 92
-    };
-    DrawCenteredText(
-        dc,
-        layout,
-        questionArea,
-        L"게임을 정말 종료하시겠습니까?",
-        20.0,
-        RGB(0xff, 0xff, 0xff));
+    if (isReturnToTitleDialog) {
+        DrawCenteredText(
+            dc,
+            layout,
+            {logicalDialog.left + 10, logicalDialog.top + 25,
+             logicalDialog.right - 10, logicalDialog.top + 67},
+            L"메인화면으로 이동하시겠습니까?",
+            18.0,
+            RGB(0xff, 0xff, 0xff));
+        DrawCenteredText(
+            dc,
+            layout,
+            {logicalDialog.left + 10, logicalDialog.top + 65,
+             logicalDialog.right - 10, logicalDialog.top + 103},
+            L"(저장되지 않습니다!)",
+            18.0,
+            RGB(0xff, 0xff, 0xff));
+    } else {
+        const RECT questionArea{
+            logicalDialog.left + 10,
+            logicalDialog.top + 36,
+            logicalDialog.right - 10,
+            logicalDialog.top + 92
+        };
+        DrawCenteredText(
+            dc,
+            layout,
+            questionArea,
+            L"게임을 정말 종료하시겠습니까?",
+            20.0,
+            RGB(0xff, 0xff, 0xff));
+    }
 
     const RECT yesLogical = ExitDialogButtonRect(true);
     const RECT noLogical = ExitDialogButtonRect(false);
@@ -4289,7 +4706,7 @@ void DrawTitleScreen(HDC dc, const RECT& client) {
     }
 
     if (gIsExitDialogVisible) {
-        DrawExitDialog(dc, layout);
+        DrawConfirmationDialog(dc, layout, false);
     }
 
     const double opacity = TitleContentOpacity();
@@ -4319,13 +4736,113 @@ void StartPreparationScreenTransition() {
     gDailyRevenueHistory.clear();
     gDayStartTime = 0;
     gCookingMistakeCount = 0;
+    gPreviousDialogueMenuName.clear();
     gScreenState = ScreenState::TitleFadingOut;
     gScreenTransitionStartTime = GetTickCount64();
     gHoveredTitleButton = -1;
 }
 
+void OpenReturnToTitleDialog(ULONGLONG now) {
+    gIsReturnToTitleDialogVisible = true;
+    gReturnToTitleDialogStartTime = now;
+    gIsTrophyHovered = false;
+    gHoveredMoneyTooltip = MoneyTooltipKind::None;
+    gIsTableHovered = false;
+    gHoveredPngSocket = -1;
+}
+
+void ShiftActiveTimestamp(ULONGLONG& timestamp, ULONGLONG offset) {
+    if (timestamp != 0) {
+        timestamp += offset;
+    }
+}
+
+void CloseReturnToTitleDialog(ULONGLONG now) {
+    if (!gIsReturnToTitleDialogVisible) {
+        return;
+    }
+    const ULONGLONG pausedMilliseconds =
+        now - gReturnToTitleDialogStartTime;
+    ShiftActiveTimestamp(gLastAnimationTickTime, pausedMilliseconds);
+    ShiftActiveTimestamp(gScreenTransitionStartTime, pausedMilliseconds);
+    ShiftActiveTimestamp(gPreparationSequenceStartTime, pausedMilliseconds);
+    ShiftActiveTimestamp(gNarrationFadeStartTime, pausedMilliseconds);
+    ShiftActiveTimestamp(gNpcIdleStartTime, pausedMilliseconds);
+    ShiftActiveTimestamp(
+        gTrophyInsufficientFundsStartTime, pausedMilliseconds);
+    ShiftActiveTimestamp(gDayStartTime, pausedMilliseconds);
+    ShiftActiveTimestamp(gBusinessClosingStartTime, pausedMilliseconds);
+    ShiftActiveTimestamp(gSettlementStartTime, pausedMilliseconds);
+    ShiftActiveTimestamp(
+        gCookingEntryIndicatorStartTime, pausedMilliseconds);
+    ShiftActiveTimestamp(gCookingTransitionStartTime, pausedMilliseconds);
+    ShiftActiveTimestamp(
+        gCompletionPresentationStartTime, pausedMilliseconds);
+    ShiftActiveTimestamp(gLastStarParticleUpdateTime, pausedMilliseconds);
+    ShiftActiveTimestamp(
+        gLastNarrationParticleUpdateTime, pausedMilliseconds);
+    ShiftActiveTimestamp(gBusinessMusicFadeStartTime, pausedMilliseconds);
+    ShiftActiveTimestamp(gNarrationStartTime, pausedMilliseconds);
+    ShiftActiveTimestamp(gNarrationCompletedTime, pausedMilliseconds);
+    ShiftActiveTimestamp(
+        gAfterCookingNarrationCompletedTime, pausedMilliseconds);
+    gIsReturnToTitleDialogVisible = false;
+    gReturnToTitleDialogStartTime = 0;
+}
+
+void CancelCurrentGameAndReturnToTitle(ULONGLONG now) {
+    StopBusinessMusic();
+    gScreenState = ScreenState::Title;
+    gTitleStartTime = now;
+    gHoveredTitleButton = -1;
+    gIsExitDialogVisible = false;
+    gIsReturnToTitleDialogVisible = false;
+    gReturnToTitleDialogStartTime = 0;
+    gEarnedMoney = 0;
+    gDayRevenue = 0;
+    for (long long& revenue : gDayMenuRevenue) {
+        revenue = 0;
+    }
+    gCurrentDay = 1;
+    gDailyRevenueGoal = kInitialDailyRevenueGoal;
+    gCurrentDayGoalMet = false;
+    gDailyGoalFailureCount = 0;
+    gIsFinalSettlement = false;
+    gDailyRevenueHistory.clear();
+    gDayStartTime = 0;
+    gCookingMistakeCount = 0;
+    gPreviousDialogueMenuName.clear();
+    gCurrentNarrationName.clear();
+    gCurrentNarrationText.clear();
+    gCurrentDialogueCategory = -1;
+    gCurrentDialogueTree = -1;
+    gIsNarrationActive = false;
+    gIsNarrationTyping = false;
+    gIsNarrationBoxInteractive = false;
+    gNarrationFadeStartTime = 0;
+    gNarrationCompletedTime = 0;
+    ClearHoverNarrationInterruption();
+    gMaterialCloneCount = 0;
+    gStarParticles.clear();
+    gNarrationParticles.clear();
+    gFogParticles.clear();
+    gCompletedFoodInstances.clear();
+    gIsCompletionPresentationActive = false;
+    gCompletedFoodImageIndex = -1;
+    gCookingState = CookingState::NonCooking;
+    gCookingTransitionTargetState = CookingState::NonCooking;
+    gIsCookingTransitionRunning = false;
+    gTableLift = 0.0;
+    gResetButtonOpacity = 0.0;
+    gIsTableHovered = false;
+    gHoveredPngSocket = -1;
+    gHoveredMoneyTooltip = MoneyTooltipKind::None;
+    gIsTrophyHovered = false;
+    gTrophyInsufficientFundsStartTime = 0;
+}
+
 void ReturnToMainScreen(ULONGLONG now) {
-    gOwnedMoney += gEarnedMoney * 20 / 1000;
+    gOwnedMoney += gEarnedMoney * kMetaCurrencyConversionPercent / 100;
     SavePlayerData();
     gScreenState = ScreenState::Title;
     gTitleStartTime = now;
@@ -4360,6 +4877,19 @@ bool IsCookingStateActive() {
     return gCookingState == CookingState::Cooking
         && !gIsCookingTransitionRunning
         && !gIsCompletionPresentationActive;
+}
+
+bool CanAdvanceNarrationWithSpace() {
+    if (gIsReturnToTitleDialogVisible
+        || gScreenState != ScreenState::Game
+        || !gIsNarrationBoxInteractive
+        || !gIsNarrationActive) {
+        return false;
+    }
+    const bool isCookingTableRaising = gIsCookingTransitionRunning
+        && gCookingTransitionTargetState == CookingState::Cooking;
+    return gCookingState != CookingState::Cooking
+        && !isCookingTableRaising;
 }
 
 RECT OptionsBackButtonRect() {
@@ -4398,6 +4928,12 @@ void DrawFontLicenseText(
     const wchar_t* text,
     const wchar_t* fontName,
     UINT format) {
+    if (BitmapFontForName(fontName).atlas != nullptr) {
+        DrawBitmapTextInRect(
+            dc, layout, logicalArea, text, kFontLicenseTextHeight,
+            RGB(0xee, 0xee, 0xee), fontName, format);
+        return;
+    }
     const HFONT font = CreateUiFont(
         layout, kFontLicenseTextHeight, FW_NORMAL, fontName);
     const HGDIOBJ oldFont = SelectObject(dc, font);
@@ -4651,7 +5187,14 @@ void DrawNpc(HDC dc, const Layout& layout) {
     double centerX = kNpcEntranceTargetX + kNpcDisplaySize / 2.0;
     double bottomY = kNpcEntranceStartBottomY;
     double spriteScale = 1.0;
-    double horizontalRotationScale = gNpcEntersFromLeft ? -1.0 : 1.0;
+    const bool isNpcExiting = gScreenState == ScreenState::NpcExiting;
+    const bool shouldRotateHorizontally = isNpcExiting
+        ? !gNpcEntersFromLeft
+        : gNpcEntersFromLeft;
+    const bool isHorizontallyMirroredBeforeVerticalMotion =
+        gNpcEntersFromLeft != isNpcExiting;
+    double horizontalRotationScale =
+        isHorizontallyMirroredBeforeVerticalMotion ? -1.0 : 1.0;
     if (entranceProgress < kNpcEntranceHorizontalFraction) {
         const double progress = SmoothStep(
             entranceProgress / kNpcEntranceHorizontalFraction);
@@ -4670,7 +5213,7 @@ void DrawNpc(HDC dc, const Layout& layout) {
                 * progress;
         spriteScale = 1.0
             + (kNpcEntranceTargetScale - 1.0) * progress;
-        if (gNpcEntersFromLeft) {
+        if (shouldRotateHorizontally) {
             constexpr double pi = 3.14159265358979323846;
             horizontalRotationScale = -std::cos(pi * progress);
         }
@@ -5226,8 +5769,12 @@ void DrawApplication(HDC dc, const RECT& client) {
 
     // 별 파티클은 플레이 영역의 클리핑이 끝난 뒤 그려 검은 여백에서도 보이게 한다.
     DrawStarParticles(dc, layout);
-    DrawMoneyTooltip(dc, layout);
-    DrawTrophyTooltip(dc, layout);
+    if (!gIsReturnToTitleDialogVisible) {
+        DrawMoneyTooltip(dc, layout);
+        DrawTrophyTooltip(dc, layout);
+    } else {
+        DrawConfirmationDialog(dc, layout, true);
+    }
 }
 
 void ReleaseBackBuffer() {
@@ -5456,6 +6003,20 @@ void BeginBusinessMusicFadeOut(ULONGLONG now) {
     gBusinessMusicFadeStep = -1;
 }
 
+void StopBusinessMusic() {
+    if (gBusinessMusic.isOpen) {
+        const std::wstring command = L"stop "
+            + std::wstring(gBusinessMusic.alias);
+        mciSendStringW(command.c_str(), nullptr, 0, nullptr);
+    }
+    gIsBusinessMusicPlaying = false;
+    gIsBusinessMusicFadingOut = false;
+    gBusinessMusicFadeStartTime = 0;
+    gBusinessMusicFadeStep = -1;
+    gBusinessMusicVolumeScale = 1.0;
+    SetSoundPlayerVolume(gBusinessMusic, 1.0);
+}
+
 void UpdateBusinessMusicFadeOut(ULONGLONG now) {
     if (!gIsBusinessMusicFadingOut) {
         return;
@@ -5549,15 +6110,22 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
         gHoveredMoneyTooltip = MoneyTooltipKind::None;
         const RECT moneyUi = MoneyUiRect();
         const RECT objectiveUi = ObjectiveUiRect();
-        if (IsOwnedMoneyInterfaceVisible()
-            && PtInRect(&moneyUi, gMouseDesignPosition)) {
-            gHoveredMoneyTooltip = MoneyTooltipKind::Owned;
-        } else if (IsEarnedMoneyInterfaceVisible()
-            && PtInRect(&moneyUi, gMouseDesignPosition)) {
-            gHoveredMoneyTooltip = MoneyTooltipKind::Earned;
-        } else if (IsObjectiveInterfaceVisible()
-            && PtInRect(&objectiveUi, gMouseDesignPosition)) {
-            gHoveredMoneyTooltip = MoneyTooltipKind::Objective;
+        const POINT mousePoint{mouseX, mouseY};
+        const RECT narrationBox = NarrationBoxRect(layout);
+        const bool isOverVisibleNarrationBox = gIsNarrationActive
+            && NarrationBoxOpacity() > 0.0
+            && PtInRect(&narrationBox, mousePoint);
+        if (!isOverVisibleNarrationBox) {
+            if (IsOwnedMoneyInterfaceVisible()
+                && PtInRect(&moneyUi, gMouseDesignPosition)) {
+                gHoveredMoneyTooltip = MoneyTooltipKind::Owned;
+            } else if (IsEarnedMoneyInterfaceVisible()
+                && PtInRect(&moneyUi, gMouseDesignPosition)) {
+                gHoveredMoneyTooltip = MoneyTooltipKind::Earned;
+            } else if (IsObjectiveInterfaceVisible()
+                && PtInRect(&objectiveUi, gMouseDesignPosition)) {
+                gHoveredMoneyTooltip = MoneyTooltipKind::Objective;
+            }
         }
         if (gScreenState == ScreenState::Title) {
             gHoveredTitleButton = HitTestTitleButton(
@@ -5620,6 +6188,20 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
             && playY <= kPlayAreaSize;
 
         const POINT logicalMouse{designX, designY};
+        if (gIsReturnToTitleDialogVisible) {
+            const RECT yesButton = ExitDialogButtonRect(true);
+            const RECT noButton = ExitDialogButtonRect(false);
+            if (PtInRect(&yesButton, logicalMouse)) {
+                PlaySoundEffect(SoundEffect::ButtonClick);
+                CancelCurrentGameAndReturnToTitle(GetTickCount64());
+            } else if (PtInRect(&noButton, logicalMouse)) {
+                PlaySoundEffect(SoundEffect::ButtonClick);
+                CloseReturnToTitleDialog(GetTickCount64());
+            }
+            UpdateMouseCursor(window, mouseX, mouseY);
+            InvalidateRect(window, nullptr, FALSE);
+            return 0;
+        }
         SoundEffect clickSound = SoundEffect::PlayerClick;
         bool deferClickSoundToAction = false;
         if (gScreenState == ScreenState::Options) {
@@ -5888,6 +6470,9 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
         if (wParam == kAnimationTimerId) {
             bool visualChanged = false;
             const ULONGLONG now = GetTickCount64();
+            if (gIsReturnToTitleDialogVisible) {
+                return 0;
+            }
             gLastAnimationTickTime = now;
             UpdateBusinessMusicFadeOut(now);
 
@@ -5909,11 +6494,16 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
 
             if (gIsCompletionPresentationActive) {
                 visualChanged = true;
-                if ((now - gCompletionPresentationStartTime) / 1000.0
-                    >= kCompletionPresentationSeconds) {
+                if (!gIsCookingTransitionRunning
+                    && gCookingState == CookingState::NonCooking) {
                     gIsCompletionPresentationActive = false;
                     gFogParticles.clear();
+                    gCompletedFoodInstances.clear();
                     gCompletedFoodImageIndex = -1;
+                } else if ((now - gCompletionPresentationStartTime) / 1000.0
+                        >= kCompletionPresentationSeconds
+                    && !gIsCookingTransitionRunning
+                    && gCookingState == CookingState::Cooking) {
                     StartCookingTransition(CookingState::NonCooking);
                 }
             }
@@ -6092,6 +6682,9 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
             if (gNarrationFadeStartTime != 0) {
                 const double narrationFadeElapsed = (
                     now - gNarrationFadeStartTime) / 1000.0;
+                if (gIsNarrationActive) {
+                    visualChanged = true;
+                }
                 if (narrationFadeElapsed < kNarrationFadeInSeconds) {
                     visualChanged = true;
                 } else if (!gIsNarrationBoxInteractive) {
@@ -6240,8 +6833,24 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
         }
         return 0;
     case WM_KEYDOWN:
-        // ESC는 추후 일시정지 기능에 사용할 예정이므로 현재는 무시한다.
+        if (wParam == VK_SPACE) {
+            if ((lParam & 0x40000000) == 0
+                && CanAdvanceNarrationWithSpace()) {
+                PlaySoundEffect(SoundEffect::PlayerClick);
+                AdvanceNarration();
+                InvalidateRect(window, nullptr, FALSE);
+            }
+            return 0;
+        }
         if (wParam == VK_ESCAPE) {
+            if ((lParam & 0x40000000) == 0) {
+                if (gIsReturnToTitleDialogVisible) {
+                    CloseReturnToTitleDialog(GetTickCount64());
+                } else if (IsGameSessionScreen()) {
+                    OpenReturnToTitleDialog(GetTickCount64());
+                }
+                InvalidateRect(window, nullptr, FALSE);
+            }
             return 0;
         }
         return DefWindowProc(window, message, wParam, lParam);
@@ -6283,6 +6892,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
     LoadMaterialImages();
     LoadMoneyImages();
     LoadNpcImages();
+    LoadBitmapFonts();
 
     WNDCLASSEX windowClass{};
     windowClass.cbSize = sizeof(windowClass);
@@ -6308,6 +6918,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
     windowClass.lpszClassName = kWindowClass;
 
     if (!RegisterClassEx(&windowClass)) {
+        UnloadBitmapFonts();
         UnloadNpcImages();
         UnloadMoneyImages();
         UnloadMaterialImages();
@@ -6331,6 +6942,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
         nullptr, nullptr, instance, nullptr);
 
     if (!window) {
+        UnloadBitmapFonts();
         UnloadNpcImages();
         UnloadMoneyImages();
         UnloadMaterialImages();
@@ -6349,6 +6961,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
             L"초기화 오류",
             MB_OK | MB_ICONERROR);
         DestroyWindow(window);
+        UnloadBitmapFonts();
         UnloadNpcImages();
         UnloadMoneyImages();
         UnloadMaterialImages();
@@ -6369,6 +6982,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
     }
 
     ShutdownSoundSystem();
+    UnloadBitmapFonts();
     UnloadNpcImages();
     UnloadMoneyImages();
     UnloadMaterialImages();
