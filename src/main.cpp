@@ -94,7 +94,7 @@ constexpr double kNarrationAutoAdvanceSeconds = 2.0;
 constexpr int kMaximumNarrationParticles = 128;
 constexpr double kNarrationParticleGravity = 120.0;
 constexpr unsigned int kHoverNarrationChancePercent = 30;
-constexpr unsigned int kExactNarrationChancePercent = 15;
+constexpr unsigned int kExactNarrationChancePercent = 30;
 constexpr UINT_PTR kAnimationTimerId = 1;
 constexpr UINT kAnimationFrameMilliseconds = 16;
 
@@ -189,9 +189,17 @@ constexpr int kTrophyImageSourceSize = 32;
 constexpr int kTrophyImageDisplaySize = kTrophyImageSourceSize * 2;
 constexpr int kTrophyImageX = kPlayAreaX + 12;
 constexpr int kTrophyImageY = kPlayAreaY + 72;
+constexpr int kTrophyShadowBlurRadius = 2;
 constexpr int kTrophyTooltipGap = 12;
 constexpr int kTrophyTooltipPadding = 8;
 constexpr double kTrophyTooltipFontHeight = 15.0;
+constexpr long long kTrophyPrice = 1000;
+constexpr int kTrophyPriceCoinSize = 16;
+constexpr int kTrophyPriceRowHeight = 20;
+constexpr int kTrophyPriceTextGap = 10;
+constexpr ULONGLONG kTrophyPriceBlinkMilliseconds = 300;
+constexpr ULONGLONG kTrophyPriceBlinkDurationMilliseconds =
+    kTrophyPriceBlinkMilliseconds * 4;
 constexpr int kExitDialogWidth = 300;
 constexpr int kExitDialogHeight = 200;
 constexpr int kExitDialogButtonWidth = 80;
@@ -273,6 +281,10 @@ POINT gVanishingPoint{kDefaultVanishingPointX, kDefaultVanishingPointY};
 POINT gMouseDesignPosition{};
 bool gHasMousePosition = false;
 bool gIsTrackingMouse = false;
+bool gIsTrophyHovered = false;
+POINT gTrophyTooltipAnchorPosition{};
+POINT gTrophyFeedbackTooltipAnchorPosition{};
+ULONGLONG gLastAnimationTickTime = 0;
 
 enum class ScreenState {
     Title,
@@ -301,6 +313,8 @@ bool gIsNarrationBoxInteractive = false;
 ULONGLONG gNpcIdleStartTime = 0;
 int gNpcIdleStep = 0;
 long long gOwnedMoney = 0;
+bool gIsTrophyPurchased = false;
+ULONGLONG gTrophyInsufficientFundsStartTime = 0;
 long long gEarnedMoney = 0;
 long long gDayRevenue = 0;
 long long gDayMenuRevenue[3]{};
@@ -443,6 +457,39 @@ Gdiplus::Image* gOwnedMoneyCoinImage = nullptr;
 Gdiplus::Image* gEarnedMoneyCoinImage = nullptr;
 Gdiplus::Image* gObjectiveImage = nullptr;
 Gdiplus::Image* gTrophyImage = nullptr;
+
+std::wstring PlayerSavePath() {
+    wchar_t executablePath[MAX_PATH]{};
+    const DWORD length = GetModuleFileName(
+        nullptr, executablePath, MAX_PATH);
+    if (length == 0 || length >= MAX_PATH) {
+        return L"player_save.dat";
+    }
+    std::wstring path(executablePath, length);
+    const size_t slash = path.find_last_of(L"\\/");
+    path.resize(slash == std::wstring::npos ? 0 : slash + 1);
+    return path + L"player_save.dat";
+}
+
+void LoadPlayerSave() {
+    std::ifstream file(PlayerSavePath());
+    long long savedOwnedMoney = 0;
+    if (file >> savedOwnedMoney && savedOwnedMoney >= 0) {
+        gOwnedMoney = savedOwnedMoney;
+        int savedTrophyPurchased = 0;
+        if (file >> savedTrophyPurchased) {
+            gIsTrophyPurchased = savedTrophyPurchased != 0;
+        }
+    }
+}
+
+void SavePlayerData() {
+    std::ofstream file(PlayerSavePath(), std::ios::trunc);
+    if (file) {
+        file << gOwnedMoney << '\n'
+             << (gIsTrophyPurchased ? 1 : 0) << '\n';
+    }
+}
 enum class NpcPart {
     BackHair,
     Bottom,
@@ -1776,88 +1823,172 @@ bool IsCookingStateActive();
 
 void RollHoverDialogueAvailability(DialogueTree& tree) {
     tree.nearbySlotDialogues.clear();
-    const bool alwaysShowExactHover = tree.menuName == L"all_ingredient";
+    const bool exactOnly = tree.menuName == L"all_ingredient";
     for (DialogueTree::HoverDialogue& hover : tree.hoverDialogues) {
         hover.nearbyEnabled.clear();
-        hover.exactEnabled.clear();
-        for (size_t index = 0; index < hover.nearbyLines.size(); ++index) {
-            hover.nearbyEnabled.push_back(
-                NextRandom() % 100 < kHoverNarrationChancePercent);
-        }
+        hover.exactEnabled.assign(hover.exactLines.size(), false);
+        std::vector<size_t> exactCandidates;
         for (size_t index = 0; index < hover.exactLines.size(); ++index) {
-            hover.exactEnabled.push_back(
-                alwaysShowExactHover
-                || NextRandom() % 100 < kExactNarrationChancePercent);
+            if (!hover.exactLines[index].empty()) {
+                exactCandidates.push_back(index);
+            }
+        }
+        if (!exactCandidates.empty()
+            && NextRandom() % 100 < kExactNarrationChancePercent) {
+            const size_t selected = exactCandidates[
+                NextRandom() % exactCandidates.size()];
+            hover.exactEnabled[selected] = true;
         }
     }
 
-    std::vector<int> candidateSockets;
-    std::vector<int> passedSockets;
-    for (int socket = 0; socket < kMaterialBinCount; ++socket) {
-        const bool isExactSocket = std::any_of(
-            tree.recipe.begin(),
-            tree.recipe.end(),
-            [socket](const DialogueTree::RecipeIngredient& ingredient) {
-                return socket == ingredient.materialIndex;
-            });
-        if (isExactSocket) {
-            continue;
-        }
-        const bool hasNearbyDialogue = std::any_of(
+    if (exactOnly) {
+        return;
+    }
+
+    const auto isExactSocket = [&tree](int socket) {
+        return std::any_of(
             tree.hoverDialogues.begin(),
             tree.hoverDialogues.end(),
             [socket](const DialogueTree::HoverDialogue& hover) {
-                return IsSocketNearMaterial(socket, hover.materialIndex)
-                    && std::any_of(
-                        hover.nearbyLines.begin(),
-                        hover.nearbyLines.end(),
-                        [](const std::wstring& line) { return !line.empty(); });
+                return socket == hover.materialIndex;
             });
-        if (!hasNearbyDialogue) {
+    };
+    struct NearbySelection {
+        size_t hoverIndex;
+        int socketIndex;
+    };
+    std::vector<std::vector<int>> candidateSockets(tree.hoverDialogues.size());
+    std::vector<NearbySelection> passed;
+    for (size_t hoverIndex = 0;
+         hoverIndex < tree.hoverDialogues.size();
+         ++hoverIndex) {
+        const DialogueTree::HoverDialogue& hover =
+            tree.hoverDialogues[hoverIndex];
+        const bool hasLine = std::any_of(
+            hover.nearbyLines.begin(),
+            hover.nearbyLines.end(),
+            [](const std::wstring& line) { return !line.empty(); });
+        if (!hasLine) {
             continue;
         }
-        candidateSockets.push_back(socket);
-        if (NextRandom() % 100 < kHoverNarrationChancePercent) {
-            passedSockets.push_back(socket);
-        }
-    }
-
-    if (passedSockets.empty() && !candidateSockets.empty()) {
-        passedSockets.push_back(candidateSockets[
-            NextRandom() % candidateSockets.size()]);
-    }
-    while (passedSockets.size() > 2) {
-        passedSockets.erase(
-            passedSockets.begin() + NextRandom() % passedSockets.size());
-    }
-
-    for (const int socket : passedSockets) {
-        std::vector<const std::wstring*> enabledCandidates;
-        std::vector<const std::wstring*> fallbackCandidates;
-        for (const DialogueTree::HoverDialogue& hover : tree.hoverDialogues) {
-            if (!IsSocketNearMaterial(socket, hover.materialIndex)
-                || socket == hover.materialIndex) {
+        for (int socket = 0; socket < kMaterialBinCount; ++socket) {
+            if (isExactSocket(socket)
+                || !IsSocketNearMaterial(socket, hover.materialIndex)) {
                 continue;
             }
-            for (size_t index = 0; index < hover.nearbyLines.size(); ++index) {
-                if (hover.nearbyLines[index].empty()) {
-                    continue;
-                }
-                fallbackCandidates.push_back(&hover.nearbyLines[index]);
-                if (index < hover.nearbyEnabled.size()
-                    && hover.nearbyEnabled[index]) {
-                    enabledCandidates.push_back(&hover.nearbyLines[index]);
+            candidateSockets[hoverIndex].push_back(socket);
+            if (NextRandom() % 100 < kHoverNarrationChancePercent) {
+                passed.push_back({hoverIndex, socket});
+            }
+        }
+    }
+
+    if (passed.empty()) {
+        std::vector<int> fallbackSockets;
+        for (size_t hoverIndex = 0;
+             hoverIndex < candidateSockets.size();
+             ++hoverIndex) {
+            for (const int socket : candidateSockets[hoverIndex]) {
+                if (std::find(
+                        fallbackSockets.begin(), fallbackSockets.end(), socket)
+                    == fallbackSockets.end()) {
+                    fallbackSockets.push_back(socket);
                 }
             }
         }
-        const std::vector<const std::wstring*>& candidates =
-            enabledCandidates.empty() ? fallbackCandidates : enabledCandidates;
-        if (!candidates.empty()) {
-            tree.nearbySlotDialogues.push_back({
-                socket,
-                *candidates[NextRandom() % candidates.size()]
+        if (!fallbackSockets.empty()) {
+            const int socket = fallbackSockets[
+                NextRandom() % fallbackSockets.size()];
+            std::vector<size_t> matchingHoverIndices;
+            for (size_t hoverIndex = 0;
+                 hoverIndex < candidateSockets.size();
+                 ++hoverIndex) {
+                if (std::find(
+                        candidateSockets[hoverIndex].begin(),
+                        candidateSockets[hoverIndex].end(),
+                        socket) != candidateSockets[hoverIndex].end()) {
+                    matchingHoverIndices.push_back(hoverIndex);
+                }
+            }
+            passed.push_back({
+                matchingHoverIndices[
+                    NextRandom() % matchingHoverIndices.size()],
+                socket
             });
         }
+    }
+
+    // If two materials only passed the same nearby cell, move the latter to a
+    // free cell in its radius so both hints remain reachable.
+    for (size_t index = 0; index < passed.size(); ++index) {
+        for (size_t other = 0; other < index; ++other) {
+            if (passed[index].socketIndex != passed[other].socketIndex
+                || passed[index].hoverIndex == passed[other].hoverIndex) {
+                continue;
+            }
+            const auto countForHover = [&passed](size_t hoverIndex) {
+                return std::count_if(
+                    passed.begin(), passed.end(),
+                    [hoverIndex](const NearbySelection& selection) {
+                        return selection.hoverIndex == hoverIndex;
+                    });
+            };
+            if (countForHover(passed[index].hoverIndex) != 1
+                || countForHover(passed[other].hoverIndex) != 1) {
+                continue;
+            }
+            std::vector<int> freeSockets;
+            for (const int candidate :
+                 candidateSockets[passed[index].hoverIndex]) {
+                const bool alreadyUsed = std::any_of(
+                    passed.begin(), passed.end(),
+                    [candidate](const NearbySelection& selection) {
+                        return selection.socketIndex == candidate;
+                    });
+                if (!alreadyUsed) {
+                    freeSockets.push_back(candidate);
+                }
+            }
+            if (!freeSockets.empty()) {
+                passed[index].socketIndex = freeSockets[
+                    NextRandom() % freeSockets.size()];
+            }
+        }
+    }
+
+    std::vector<int> selectedSockets;
+    while (!passed.empty() && selectedSockets.size() < 2) {
+        const size_t pickedIndex = NextRandom() % passed.size();
+        const int socket = passed[pickedIndex].socketIndex;
+        std::vector<size_t> matchingHoverIndices;
+        for (const NearbySelection& selection : passed) {
+            if (selection.socketIndex == socket) {
+                matchingHoverIndices.push_back(selection.hoverIndex);
+            }
+        }
+        const size_t hoverIndex = matchingHoverIndices[
+            NextRandom() % matchingHoverIndices.size()];
+        const auto& lines = tree.hoverDialogues[hoverIndex].nearbyLines;
+        std::vector<const std::wstring*> lineCandidates;
+        for (const std::wstring& line : lines) {
+            if (!line.empty()) {
+                lineCandidates.push_back(&line);
+            }
+        }
+        if (!lineCandidates.empty()) {
+            tree.nearbySlotDialogues.push_back({
+                socket,
+                *lineCandidates[NextRandom() % lineCandidates.size()]
+            });
+            selectedSockets.push_back(socket);
+        }
+        passed.erase(
+            std::remove_if(
+                passed.begin(), passed.end(),
+                [socket](const NearbySelection& selection) {
+                    return selection.socketIndex == socket;
+                }),
+            passed.end());
     }
 }
 
@@ -2067,10 +2198,10 @@ void TryStartHoverNarration(int hoveredSocket) {
     }
 
     const bool isExactSocket = std::any_of(
-        tree->recipe.begin(),
-        tree->recipe.end(),
-        [hoveredSocket](const DialogueTree::RecipeIngredient& ingredient) {
-            return hoveredSocket == ingredient.materialIndex;
+        tree->hoverDialogues.begin(),
+        tree->hoverDialogues.end(),
+        [hoveredSocket](const DialogueTree::HoverDialogue& hover) {
+            return hoveredSocket == hover.materialIndex;
         });
     if (!isExactSocket) {
         const auto nearby = std::find_if(
@@ -2448,6 +2579,7 @@ void DrawNarrationParticles(HDC dc, const Layout& layout) {
     if (GetClipBox(dc, &clip) == ERROR) {
         return;
     }
+
     for (const NarrationParticle& particle : gNarrationParticles) {
         const POINT topLeft = LogicalPoint(layout, particle.x, particle.y);
         const int size = (std::max)(
@@ -2991,24 +3123,7 @@ void DrawPreparationSequenceUi(HDC dc, const Layout& layout) {
         const double uiTransitionSeconds = kPreparationUiFadeSeconds * 2.0;
         const double buttonOpacity = 1.0 - SmoothStep(
             elapsed / uiTransitionSeconds);
-        if (elapsed < kPreparationUiFadeSeconds) {
-            const double fadeOut = 1.0 - SmoothStep(
-                elapsed / kPreparationUiFadeSeconds);
-            DrawMoneyInterface(
-                dc,
-                layout,
-                true,
-                static_cast<BYTE>(std::lround(fadeOut * 255.0)));
-        } else {
-            const double fadeIn = SmoothStep(
-                (elapsed - kPreparationUiFadeSeconds)
-                    / kPreparationUiFadeSeconds);
-            DrawMoneyInterface(
-                dc,
-                layout,
-                false,
-                static_cast<BYTE>(std::lround(fadeIn * 255.0)));
-        }
+        DrawMoneyInterface(dc, layout, false, 255);
         DrawStartBusinessButton(
             dc,
             layout,
@@ -3587,6 +3702,7 @@ void StartPreparationScreenTransition() {
 
 void ReturnToMainScreen(ULONGLONG now) {
     gOwnedMoney += gEarnedMoney * 5 / 100;
+    SavePlayerData();
     gScreenState = ScreenState::Title;
     gTitleStartTime = now;
     gHoveredTitleButton = -1;
@@ -3852,6 +3968,47 @@ void DrawTrophy(HDC dc, const Layout& layout) {
         Gdiplus::Graphics graphics(dc);
         graphics.SetInterpolationMode(Gdiplus::InterpolationModeNearestNeighbor);
         graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
+        constexpr int blurWeights[] = {1, 4, 6, 4, 1};
+        constexpr float totalBlurWeight = 256.0f;
+        for (int y = -kTrophyShadowBlurRadius;
+             y <= kTrophyShadowBlurRadius;
+             ++y) {
+            for (int x = -kTrophyShadowBlurRadius;
+                 x <= kTrophyShadowBlurRadius;
+                 ++x) {
+                const float alpha = 0.15f
+                    * blurWeights[x + kTrophyShadowBlurRadius]
+                    * blurWeights[y + kTrophyShadowBlurRadius]
+                    / totalBlurWeight;
+                Gdiplus::ColorMatrix shadowMatrix = {
+                    0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                    0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                    0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                    0.0f, 0.0f, 0.0f, alpha, 0.0f,
+                    0.0f, 0.0f, 0.0f, 0.0f, 1.0f
+                };
+                Gdiplus::ImageAttributes shadowAttributes;
+                shadowAttributes.SetColorMatrix(
+                    &shadowMatrix,
+                    Gdiplus::ColorMatrixFlagsDefault,
+                    Gdiplus::ColorAdjustTypeBitmap);
+                graphics.DrawImage(
+                    gTrophyImage,
+                    Gdiplus::Rect(
+                        area.left + static_cast<int>(std::lround(
+                            x * layout.scale)),
+                        area.top + static_cast<int>(std::lround(
+                            y * layout.scale)),
+                        area.right - area.left,
+                        area.bottom - area.top),
+                    0,
+                    0,
+                    kTrophyImageSourceSize,
+                    kTrophyImageSourceSize,
+                    Gdiplus::UnitPixel,
+                    &shadowAttributes);
+            }
+        }
         graphics.DrawImage(
             gTrophyImage,
             Gdiplus::Rect(
@@ -3868,13 +4025,7 @@ void DrawTrophy(HDC dc, const Layout& layout) {
 }
 
 void DrawTrophyTooltip(HDC dc, const Layout& layout) {
-    if (gScreenState != ScreenState::Game
-        || !gHasMousePosition
-        || !gIsTrackingMouse) {
-        return;
-    }
-    const RECT trophy = TrophyLogicalRect();
-    if (!PtInRect(&trophy, gMouseDesignPosition)) {
+    if (!gIsTrophyHovered) {
         return;
     }
 
@@ -3899,10 +4050,17 @@ void DrawTrophyTooltip(HDC dc, const Layout& layout) {
         std::ceil(textSize.cx / layout.scale));
     const int logicalTextHeight = static_cast<int>(
         std::ceil(textSize.cy / layout.scale));
-    const int tooltipWidth = logicalTextWidth + kTrophyTooltipPadding * 2;
-    const int tooltipHeight = logicalTextHeight + kTrophyTooltipPadding * 2;
-    int tooltipX = gMouseDesignPosition.x + kTrophyTooltipGap;
-    int tooltipY = gMouseDesignPosition.y + kTrophyTooltipGap;
+    const int tooltipWidth = (std::max)(
+        logicalTextWidth + kTrophyTooltipPadding * 2,
+        120);
+    const int tooltipHeight = logicalTextHeight
+        + kTrophyPriceRowHeight
+        + kTrophyTooltipPadding * 3;
+    const POINT tooltipAnchor = gTrophyInsufficientFundsStartTime != 0
+        ? gTrophyFeedbackTooltipAnchorPosition
+        : gTrophyTooltipAnchorPosition;
+    int tooltipX = tooltipAnchor.x + kTrophyTooltipGap;
+    int tooltipY = tooltipAnchor.y + kTrophyTooltipGap;
     tooltipX = (std::min)(tooltipX, kDesignWidth - tooltipWidth);
     tooltipY = (std::min)(tooltipY, kDesignHeight - tooltipHeight);
     const RECT logicalTooltip{
@@ -3918,13 +4076,94 @@ void DrawTrophyTooltip(HDC dc, const Layout& layout) {
         tooltipWidth,
         tooltipHeight);
     FillSolid(dc, tooltip, RGB(0x2a, 0x2a, 0x2a));
+    const RECT descriptionArea{
+        logicalTooltip.left + kTrophyTooltipPadding,
+        logicalTooltip.top + kTrophyTooltipPadding,
+        logicalTooltip.right - kTrophyTooltipPadding,
+        logicalTooltip.top + kTrophyTooltipPadding + logicalTextHeight
+    };
     DrawCenteredText(
         dc,
         layout,
-        logicalTooltip,
+        descriptionArea,
         tooltipText,
         kTrophyTooltipFontHeight,
         RGB(0xff, 0xff, 0xff));
+
+    const int priceTop = descriptionArea.bottom + kTrophyTooltipPadding;
+    const RECT logicalCoin{
+        logicalTooltip.left + kTrophyTooltipPadding,
+        priceTop + (kTrophyPriceRowHeight - kTrophyPriceCoinSize) / 2,
+        logicalTooltip.left + kTrophyTooltipPadding + kTrophyPriceCoinSize,
+        priceTop + (kTrophyPriceRowHeight + kTrophyPriceCoinSize) / 2
+    };
+    const RECT coin = LogicalRect(
+        layout,
+        logicalCoin.left,
+        logicalCoin.top,
+        kTrophyPriceCoinSize,
+        kTrophyPriceCoinSize);
+    if (gOwnedMoneyCoinImage != nullptr) {
+        Gdiplus::Graphics graphics(dc);
+        graphics.SetInterpolationMode(Gdiplus::InterpolationModeNearestNeighbor);
+        graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
+        graphics.DrawImage(
+            gOwnedMoneyCoinImage,
+            Gdiplus::Rect(
+                coin.left, coin.top,
+                coin.right - coin.left, coin.bottom - coin.top),
+            0, 0,
+            kMoneyCoinSourceSize, kMoneyCoinSourceSize,
+            Gdiplus::UnitPixel);
+    }
+    const RECT priceArea{
+        logicalCoin.right + kTrophyPriceTextGap,
+        priceTop,
+        logicalTooltip.right - kTrophyTooltipPadding,
+        priceTop + kTrophyPriceRowHeight
+    };
+    const ULONGLONG insufficientFundsElapsed =
+        gTrophyInsufficientFundsStartTime == 0
+            ? 0
+            : GetTickCount64() - gTrophyInsufficientFundsStartTime;
+    const bool insufficientFunds =
+        gTrophyInsufficientFundsStartTime != 0
+        && insufficientFundsElapsed
+            < kTrophyPriceBlinkDurationMilliseconds;
+    {
+        const std::wstring priceText = gIsTrophyPurchased
+            ? L"구매됨!"
+            : FormatMoney(kTrophyPrice);
+        const HFONT priceFont = CreateUiFont(
+            layout, kTrophyTooltipFontHeight, FW_BOLD);
+        const HGDIOBJ oldPriceFont = SelectObject(dc, priceFont);
+        const int oldPriceBackgroundMode = SetBkMode(dc, TRANSPARENT);
+        const COLORREF oldPriceColor = SetTextColor(
+            dc,
+            gIsTrophyPurchased
+                ? RGB(0x66, 0xdd, 0x77)
+                : (insufficientFunds
+                    && (insufficientFundsElapsed
+                            / kTrophyPriceBlinkMilliseconds) % 2 == 0
+                    ? RGB(0xff, 0x55, 0x55)
+                    : RGB(0xff, 0xff, 0xff)));
+        RECT screenPriceArea = LogicalRect(
+            layout,
+            priceArea.left,
+            priceArea.top,
+            priceArea.right - priceArea.left,
+            priceArea.bottom - priceArea.top);
+        DrawText(
+            dc,
+            priceText.c_str(),
+            -1,
+            &screenPriceArea,
+            DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+        SetTextColor(dc, oldPriceColor);
+        SetBkMode(dc, oldPriceBackgroundMode);
+        SelectObject(dc, oldPriceFont);
+        DeleteObject(priceFont);
+    }
 }
 
 void DrawGame(HDC dc, const RECT& client) {
@@ -3938,7 +4177,6 @@ void DrawGame(HDC dc, const RECT& client) {
     const RECT playArea = LogicalRect(
         layout, kPlayAreaX, kPlayAreaY, kPlayAreaSize, kPlayAreaSize);
     DrawInterior(dc, layout);
-    DrawTrophy(dc, layout);
 
     // 체크 바닥은 정적 배경에 두어 유리돔 이동 중에도 장면이 이어지게 한다.
     const int floorDc = SaveDC(dc);
@@ -4011,6 +4249,7 @@ void DrawGame(HDC dc, const RECT& client) {
     }
 
     DrawCookingEntryIndicator(dc, layout);
+    DrawTrophy(dc, layout);
 
 }
 
@@ -4129,6 +4368,16 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
         gMouseDesignPosition.y = static_cast<LONG>(std::lround(
             (mouseY - layout.offsetY) / layout.scale));
         gHasMousePosition = true;
+        const RECT trophy = TrophyLogicalRect();
+        const bool wasTrophyHovered = gIsTrophyHovered;
+        gIsTrophyHovered = PtInRect(
+            &trophy, gMouseDesignPosition) != FALSE;
+        if (!wasTrophyHovered && gIsTrophyHovered) {
+            gTrophyTooltipAnchorPosition = gMouseDesignPosition;
+        }
+        if (wasTrophyHovered && !gIsTrophyHovered) {
+            gTrophyInsufficientFundsStartTime = 0;
+        }
         if (gScreenState == ScreenState::Title) {
             gHoveredTitleButton = HitTestTitleButton(
                 gMouseDesignPosition.x,
@@ -4151,8 +4400,18 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
             gIsTrackingMouse = true;
         }
         UpdateMouseCursor(window, mouseX, mouseY);
-        if (gScreenState == ScreenState::Game) {
+        if (gScreenState == ScreenState::Game
+            || wasTrophyHovered != gIsTrophyHovered) {
             InvalidateRect(window, nullptr, FALSE);
+        }
+        const ULONGLONG now = GetTickCount64();
+        if (gLastAnimationTickTime == 0
+            || now - gLastAnimationTickTime
+                >= kAnimationFrameMilliseconds) {
+            // WM_TIMER and WM_PAINT are low-priority messages. Continuous mouse
+            // input can otherwise starve every time-based animation in the game.
+            SendMessage(window, WM_TIMER, kAnimationTimerId, 0);
+            UpdateWindow(window);
         }
         return 0;
     }
@@ -4172,6 +4431,27 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
             && playX <= kPlayAreaSize
             && playY >= 0
             && playY <= kPlayAreaSize;
+
+        const POINT logicalMouse{designX, designY};
+        const RECT trophy = TrophyLogicalRect();
+        if (gScreenState != ScreenState::Title
+            && gScreenState != ScreenState::TitleFadingOut
+            && PtInRect(&trophy, logicalMouse)) {
+            if (!gIsTrophyPurchased) {
+                if (gOwnedMoney >= kTrophyPrice) {
+                    gOwnedMoney -= kTrophyPrice;
+                    gIsTrophyPurchased = true;
+                    gTrophyInsufficientFundsStartTime = 0;
+                    SavePlayerData();
+                } else {
+                    gTrophyFeedbackTooltipAnchorPosition =
+                        gTrophyTooltipAnchorPosition;
+                    gTrophyInsufficientFundsStartTime = GetTickCount64();
+                }
+            }
+            InvalidateRect(window, nullptr, FALSE);
+            return 0;
+        }
 
         if (gScreenState == ScreenState::Title) {
             if (!IsTitleInteractive()) {
@@ -4282,6 +4562,8 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
     }
     case WM_MOUSELEAVE:
         gIsTrackingMouse = false;
+        gIsTrophyHovered = false;
+        gTrophyInsufficientFundsStartTime = 0;
         gIsTableHovered = false;
         gHoveredPngSocket = -1;
         gHoveredTitleButton = -1;
@@ -4292,6 +4574,16 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
         if (wParam == kAnimationTimerId) {
             bool visualChanged = false;
             const ULONGLONG now = GetTickCount64();
+            gLastAnimationTickTime = now;
+
+            if (gIsTrophyHovered
+                && gTrophyInsufficientFundsStartTime != 0) {
+                if (now - gTrophyInsufficientFundsStartTime
+                    >= kTrophyPriceBlinkDurationMilliseconds) {
+                    gTrophyInsufficientFundsStartTime = 0;
+                }
+                visualChanged = true;
+            }
 
             if (!gStarParticles.empty()) {
                 UpdateStarParticles(window, now);
@@ -4522,11 +4814,14 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
                     visualChanged = true;
                 }
 
+                const int previousHoveredSocket = gHoveredPngSocket;
                 gHoveredPngSocket = HitTestPngSocket();
-                if (gHoveredPngSocket < 0) {
+                if (gHoveredPngSocket != previousHoveredSocket) {
                     gLastNarrationHoverSocket = -1;
-                } else {
-                    TryStartHoverNarration(gHoveredPngSocket);
+                    if (gHoveredPngSocket >= 0
+                        && !gIsHoverNarrationActive) {
+                        TryStartHoverNarration(gHoveredPngSocket);
+                    }
                 }
                 for (int index = 0; index < kMaterialBinCount; ++index) {
                     const double targetScale = (index == gHoveredPngSocket)
@@ -4586,6 +4881,7 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
         }
         return DefWindowProc(window, message, wParam, lParam);
     case WM_DESTROY:
+        SavePlayerData();
         KillTimer(window, kAnimationTimerId);
         PostQuitMessage(0);
         return 0;
@@ -4602,6 +4898,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
     }
     gRandomState ^= static_cast<unsigned int>(GetTickCount());
     gAssetsDirectory = FindAssetsDirectory();
+    LoadPlayerSave();
     if (gAssetsDirectory.empty() || !LoadNarrationData()) {
         MessageBox(
             nullptr,
