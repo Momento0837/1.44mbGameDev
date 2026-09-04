@@ -4,6 +4,11 @@ project(OnePointFourFourMBGame LANGUAGES CXX)
 
 add_executable(OnePointFourFourMBGame WIN32
     src/main.cpp
+    "솔루션파일/Build/Build/app.rc"
+)
+
+set_target_properties(OnePointFourFourMBGame PROPERTIES
+    OUTPUT_NAME "주문을똑바로말해!"
 )
 
 target_compile_features(OnePointFourFourMBGame PRIVATE cxx_std_17)

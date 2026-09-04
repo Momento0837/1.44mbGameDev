@@ -3,6 +3,7 @@ param(
 )
 
 Add-Type -AssemblyName System.Drawing
+Add-Type -AssemblyName System.Windows.Forms
 
 $sourcePath = Join-Path $ProjectRoot 'src\main.cpp'
 $narrationPath = Join-Path $ProjectRoot 'assets\narration.json'
@@ -63,6 +64,7 @@ function New-BitmapFontAtlas {
     $brush = [System.Drawing.SolidBrush]::new([System.Drawing.Color]::White)
     $format = [System.Drawing.StringFormat]::GenericTypographic.Clone()
     $format.FormatFlags = $format.FormatFlags -bor [System.Drawing.StringFormatFlags]::NoClip
+    $advances = [System.Collections.Generic.List[int]]::new()
 
     for ($index = 0; $index -lt $orderedCharacters.Count; ++$index) {
         $x = ($index % $columns) * $cellWidth
@@ -74,11 +76,18 @@ function New-BitmapFontAtlas {
             [single]($x + 2),
             [single]($y + 2),
             $format)
+        $measured = [System.Windows.Forms.TextRenderer]::MeasureText(
+            [string]$orderedCharacters[$index],
+            $font,
+            [System.Drawing.Size]::new([int]::MaxValue, [int]::MaxValue),
+            [System.Windows.Forms.TextFormatFlags]::NoPadding)
+        $advances.Add($measured.Width)
     }
 
     $pngPath = Join-Path $outputDirectory ($OutputName + '.png')
     $mapPath = Join-Path $outputDirectory ($OutputName + '.chars.txt')
     $infoPath = Join-Path $outputDirectory ($OutputName + '.info.txt')
+    $widthsPath = Join-Path $outputDirectory ($OutputName + '.widths.txt')
     $bitmap.Save($pngPath, [System.Drawing.Imaging.ImageFormat]::Png)
     [System.IO.File]::WriteAllText(
         $mapPath, $characterMap, [System.Text.UTF8Encoding]::new($false))
@@ -91,6 +100,10 @@ function New-BitmapFontAtlas {
             'columns=16',
             ('glyph_count=' + $orderedCharacters.Count)
         ),
+        [System.Text.UTF8Encoding]::new($false))
+    [System.IO.File]::WriteAllLines(
+        $widthsPath,
+        [string[]]$advances,
         [System.Text.UTF8Encoding]::new($false))
 
     $format.Dispose()
