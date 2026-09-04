@@ -103,7 +103,7 @@ constexpr int kNarrationBoxY = 10;
 constexpr int kNarrationBoxWidth = kDesignWidth - 20;
 constexpr int kNarrationBoxHeight = 160;
 constexpr ULONGLONG kNarrationCharacterIntervalMilliseconds = 80;
-constexpr double kNarrationAutoAdvanceSeconds = 2.0;
+constexpr double kNarrationAutoAdvanceSeconds = 3.0;
 constexpr int kMaximumNarrationParticles = 128;
 constexpr double kNarrationParticleGravity = 120.0;
 constexpr unsigned int kHoverNarrationChancePercent = 30;
@@ -188,6 +188,8 @@ constexpr int kMoneyTextWidth = 120;
 constexpr int kMoneyFontHeight = 24;
 constexpr int kMoneyTooltipPadding = 5;
 constexpr int kMoneyTooltipGap = 12;
+constexpr long long kRevenueConversionNumerator = 16;
+constexpr long long kRevenueConversionDenominator = 1000;
 constexpr long long kInitialDailyRevenueGoal = 1000;
 struct CustomerCategoryReward {
     const wchar_t* id;
@@ -204,7 +206,6 @@ constexpr CustomerCategoryReward kCustomerCategoryRewards[] = {
 constexpr int kStartBusinessButtonWidth = 112;
 constexpr int kStartBusinessButtonHeight = kMoneyCoinDisplaySize;
 constexpr double kStartBusinessButtonOpacity = 0.70;
-constexpr double kPreparationUiFadeSeconds = 0.5;
 constexpr double kCountdownStepSeconds = 1.0;
 constexpr int kCountdownStepCount = 4;
 constexpr double kCountdownPulseScale = 1.05;
@@ -2757,13 +2758,15 @@ int RewardErrorCount(int actualErrorCount) {
 constexpr long long CalculateNextDailyRevenueGoal(
     long long currentGoal,
     bool goalMet) {
-    const int multiplierTenths = goalMet ? 11 : 12;
-    return (currentGoal * multiplierTenths + 5) / 10;
+    const int additionTenths = goalMet ? 8 : 9;
+    const long long nextGoal = currentGoal
+        + currentGoal * additionTenths / 10;
+    return (std::max)(kInitialDailyRevenueGoal, nextGoal);
 }
 
-static_assert(CalculateNextDailyRevenueGoal(1000, true) == 1100);
-static_assert(CalculateNextDailyRevenueGoal(1100, true) == 1210);
-static_assert(CalculateNextDailyRevenueGoal(1000, false) == 1200);
+static_assert(CalculateNextDailyRevenueGoal(1000, true) == 1800);
+static_assert(CalculateNextDailyRevenueGoal(1800, true) == 3240);
+static_assert(CalculateNextDailyRevenueGoal(1000, false) == 1900);
 
 int CurrentOrderBaseReward() {
     if (gCurrentDialogueCategory < 0
@@ -3013,6 +3016,10 @@ void StartBusinessClosing(ULONGLONG now) {
 }
 
 void StartSettlement(ULONGLONG now) {
+    gOwnedMoney += gDayRevenue
+        * kRevenueConversionNumerator
+        / kRevenueConversionDenominator;
+    SavePlayerData();
     gScreenState = ScreenState::Settlement;
     gSettlementStartTime = now;
     PlaySoundEffect(SoundEffect::Receipt);
@@ -3719,23 +3726,10 @@ void DrawPreparationSequenceUi(HDC dc, const Layout& layout) {
         DrawMoneyInterface(dc, layout, true, 255);
         DrawStartBusinessButton(dc, layout, 255);
     } else if (gScreenState == ScreenState::Countdown) {
-        if (gCurrentDay > 1) {
-            DrawMoneyInterface(dc, layout, false, 255);
-            DrawObjectiveInterface(dc, layout);
-            DrawCountdown(dc, layout);
-            return;
-        }
-        const double elapsed = (
-            GetTickCount64() - gPreparationSequenceStartTime) / 1000.0;
-        const double uiTransitionSeconds = kPreparationUiFadeSeconds * 2.0;
-        const double buttonOpacity = 1.0 - SmoothStep(
-            elapsed / uiTransitionSeconds);
         DrawMoneyInterface(dc, layout, false, 255);
-        DrawStartBusinessButton(
-            dc,
-            layout,
-            static_cast<BYTE>(std::lround(buttonOpacity * 255.0)));
+        DrawObjectiveInterface(dc, layout);
         DrawCountdown(dc, layout);
+        return;
     } else if (gScreenState == ScreenState::NpcEntering
         || gScreenState == ScreenState::NpcExiting) {
         DrawMoneyInterface(dc, layout, false, 255);
@@ -4325,10 +4319,19 @@ void StartPreparationScreenTransition() {
 }
 
 void ReturnToMainScreen(ULONGLONG now) {
-    gOwnedMoney += gEarnedMoney * 20 / 1000;
-    SavePlayerData();
-    gScreenState = ScreenState::Title;
-    gTitleStartTime = now;
+    gEarnedMoney = 0;
+    gDayRevenue = 0;
+    for (long long& revenue : gDayMenuRevenue) {
+        revenue = 0;
+    }
+    gCurrentDay = 1;
+    gDailyRevenueGoal = kInitialDailyRevenueGoal;
+    gCurrentDayGoalMet = false;
+    gDailyGoalFailureCount = 0;
+    gDailyRevenueHistory.clear();
+    gDayStartTime = 0;
+    gCookingMistakeCount = 0;
+    gScreenState = ScreenState::Preparation;
     gHoveredTitleButton = -1;
     gIsExitDialogVisible = false;
     gIsNarrationActive = false;
@@ -4460,6 +4463,18 @@ void DrawOptionsScreen(HDC dc, const RECT& client) {
     DrawCenteredText(
         dc, layout, {520, 210, 580, 240}, L"100", 18.0,
         RGB(0xff, 0xff, 0xff));
+    const int displayedVolume = static_cast<int>(std::floor(
+        std::clamp(gMasterSoundVolume, 0.0, 1.0) * 100.0 + 0.000001));
+    DrawCenteredText(
+        dc,
+        layout,
+        {knobX - 30, kVolumeSliderY - 38,
+         knobX + 30, kVolumeSliderY - 16},
+        std::to_wstring(displayedVolume).c_str(),
+        13.0,
+        RGB(0xff, 0xff, 0xff),
+        FW_NORMAL,
+        kTitleFontName);
 
     constexpr wchar_t dropdownNames[2][16] = {
         L"DOS Philgi",
@@ -5603,6 +5618,9 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
         return 0;
     }
     case WM_LBUTTONDOWN: {
+        if (gScreenState == ScreenState::TitleFadingOut) {
+            return 0;
+        }
         RECT client{};
         GetClientRect(window, &client);
         const Layout layout = GetLayout(client);
