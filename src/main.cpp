@@ -122,6 +122,10 @@ constexpr unsigned int kHoverNarrationChancePercent = 30;
 constexpr unsigned int kExactNarrationChancePercent = 30;
 constexpr UINT_PTR kAnimationTimerId = 1;
 constexpr UINT kAnimationFrameMilliseconds = 16;
+constexpr ULONGLONG kBusinessMusicStartDelayMilliseconds = 60;
+constexpr UINT kClickSoundPreparedMessage = WM_APP + 1;
+constexpr UINT kSfxThreadPlayMessage = WM_APP + 10;
+constexpr UINT kSfxThreadVolumeMessage = WM_APP + 11;
 
 // MP3 효과음: 같은 용도의 동작은 하나의 파일을 공유한다.
 constexpr wchar_t kPlayerClickSoundPath[] = L"sounds\\player_click.mp3";
@@ -203,12 +207,15 @@ constexpr int kMoneyCoinDisplaySize = 32;
 constexpr int kMoneyTextGap = 8;
 constexpr int kMoneyTextWidth = 120;
 constexpr int kMoneyFontHeight = 24;
+constexpr int kLargeMoneyFontReduction = 2;
+constexpr long long kSixDigitMoneyThreshold = 100000;
 constexpr int kMoneyTooltipPadding = 5;
 constexpr int kMoneyTooltipGap = 12;
 constexpr long long kRevenueConversionNumerator = 16;
 constexpr long long kRevenueConversionDenominator = 1000;
 constexpr long long kInitialDailyRevenueGoal = 1000;
-constexpr int kDailyRevenueGoalMultiplierTenths = 18;
+constexpr long long kMaximumDailyRevenueGoalIncrease = 5400;
+constexpr long long kMaximumDailyRevenueGoalIncreaseFromDay6 = 8000;
 constexpr int kMetaCurrencyConversionPercent = 1;
 struct CustomerCategoryReward {
     const wchar_t* id;
@@ -462,6 +469,9 @@ bool gSkipTutorial = false;
 ULONGLONG gTrophyInsufficientFundsStartTime = 0;
 ULONGLONG gPreGameMessageStartTime = 0;
 int gPreGameMessageIndex = 0;
+bool gIsPreGameMessageSkipping = false;
+ULONGLONG gPreGameMessageFadeOutStartTime = 0;
+double gPreGameMessageFadeOutStartOpacity = 1.0;
 long long gEarnedMoney = 0;
 long long gDayRevenue = 0;
 long long gDayMenuRevenue[3]{};
@@ -588,8 +598,9 @@ SoundEffectPlayer gBusinessMusic{
 SoundEffectPlayer gBusinessMusicAlternate{
     kBusinessMusicAlternatePath, L"bgm_business_alt", false, 1.0};
 HWND gSoundNotificationWindow = nullptr;
-MCIDEVICEID gPlayerClickDeviceId = 0;
-bool gIsPlayerClickPrepared = false;
+constexpr size_t kPreparedClickSoundCount = 2;
+MCIDEVICEID gPreparedClickSoundDeviceIds[kPreparedClickSoundCount]{};
+bool gIsClickSoundPrepared[kPreparedClickSoundCount]{};
 bool gIsBusinessMusicPlaying = false;
 bool gIsBusinessMusicFadingOut = false;
 ULONGLONG gBusinessMusicFadeStartTime = 0;
@@ -597,11 +608,18 @@ double gBusinessMusicVolumeScale = 1.0;
 int gBusinessMusicFadeStep = -1;
 ULONGLONG gBusinessMusicLengthMilliseconds = 0;
 ULONGLONG gBusinessMusicPlaybackStartTime = 0;
+ULONGLONG gBusinessMusicScheduledStartTime = 0;
 ULONGLONG gBusinessMusicCrossfadeStartTime = 0;
 int gBusinessMusicActivePlayer = 0;
 int gBusinessMusicCrossfadeStep = -1;
 bool gIsBusinessMusicLoopCrossfading = false;
 double gBusinessMusicPlayerMix[2]{1.0, 0.0};
+HANDLE gSfxThread = nullptr;
+HANDLE gSfxThreadReadyEvent = nullptr;
+DWORD gSfxThreadId = 0;
+HANDLE gNpcSfxThread = nullptr;
+HANDLE gNpcSfxThreadReadyEvent = nullptr;
+DWORD gNpcSfxThreadId = 0;
 void PlaySoundEffect(SoundEffect effect);
 void StartBusinessMusic();
 void BeginBusinessMusicFadeOut(ULONGLONG now);
@@ -687,7 +705,7 @@ Gdiplus::Image* gObjectiveImage = nullptr;
 Gdiplus::Image* gTrophyImage = nullptr;
 Gdiplus::Image* gTitleImage = nullptr;
 Gdiplus::Bitmap* gTrophyShadowImage = nullptr;
-constexpr int kCompletedFoodImageCount = 6;
+constexpr int kCompletedFoodImageCount = 7;
 Gdiplus::Image* gCompletedFoodImages[kCompletedFoodImageCount]{};
 Gdiplus::Bitmap* gCompletedFoodShadowImages[kCompletedFoodImageCount]{};
 Gdiplus::Image* gFogImage = nullptr;
@@ -817,6 +835,7 @@ constexpr wchar_t kNpcPartImagePaths
 };
 Gdiplus::Image* gNpcPartImages
     [kNpcPartCount][kMaximumNpcPartVariants]{};
+Gdiplus::Bitmap* gCompositedNpcImage = nullptr;
 int gSelectedNpcPartVariants[kNpcPartCount]{};
 bool gNpcEntersFromLeft = false;
 
@@ -1381,7 +1400,8 @@ void LoadMoneyImages() {
         L"materials\\onlykimbop.png",
         L"materials\\saladwrap.png",
         L"materials\\salad.png",
-        L"materials\\mint_chocolate_2.png"
+        L"materials\\mint_chocolate_2.png",
+        L"materials\\dump.png"
     };
     for (int index = 0; index < kCompletedFoodImageCount; ++index) {
         gCompletedFoodImages[index] = LoadOptionalImage(
@@ -1544,6 +1564,8 @@ void UnloadMoneyImages() {
 }
 
 void UnloadNpcImages() {
+    delete gCompositedNpcImage;
+    gCompositedNpcImage = nullptr;
     for (auto& partImages : gNpcPartImages) {
         for (Gdiplus::Image*& image : partImages) {
             delete image;
@@ -2082,6 +2104,34 @@ void DrawMaterialImage(HDC dc, int materialIndex, const RECT& area) {
     }
 }
 
+void RebuildCompositedNpcImage() {
+    delete gCompositedNpcImage;
+    gCompositedNpcImage = new Gdiplus::Bitmap(
+        kNpcSourceSize, kNpcSourceSize, PixelFormat32bppARGB);
+    if (gCompositedNpcImage->GetLastStatus() != Gdiplus::Ok) {
+        delete gCompositedNpcImage;
+        gCompositedNpcImage = nullptr;
+        return;
+    }
+    Gdiplus::Graphics graphics(gCompositedNpcImage);
+    graphics.Clear(Gdiplus::Color(0, 0, 0, 0));
+    graphics.SetCompositingMode(Gdiplus::CompositingModeSourceOver);
+    graphics.SetCompositingQuality(Gdiplus::CompositingQualityHighSpeed);
+    graphics.SetInterpolationMode(Gdiplus::InterpolationModeNearestNeighbor);
+    graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
+    for (int part = 0; part < kNpcPartCount; ++part) {
+        const int variant = gSelectedNpcPartVariants[part];
+        if (variant < 0 || gNpcPartImages[part][variant] == nullptr) {
+            continue;
+        }
+        graphics.DrawImage(
+            gNpcPartImages[part][variant],
+            Gdiplus::Rect(0, 0, kNpcSourceSize, kNpcSourceSize),
+            0, 0, kNpcSourceSize, kNpcSourceSize,
+            Gdiplus::UnitPixel);
+    }
+}
+
 void RandomizeNpcAppearance() {
     for (int part = 0; part < kNpcPartCount; ++part) {
         const bool isHairPart = part == static_cast<int>(NpcPart::BackHair)
@@ -2091,6 +2141,7 @@ void RandomizeNpcAppearance() {
             kNpcPartVariantCounts[part] - 1);
     }
     gNpcEntersFromLeft = NextRandom() % 2 == 0;
+    RebuildCompositedNpcImage();
 }
 
 void DrawMaterialShadow(HDC dc, int materialIndex, const RECT& area) {
@@ -2156,6 +2207,11 @@ void DrawPngSocket(HDC dc, int binIndex, const RECT& socket) {
 
 void DrawPngSockets(HDC dc, const Layout& layout) {
     // 각 PNG소켓은 재료통의 정중앙에 정방형으로 배치한다.
+    Gdiplus::Graphics graphics(dc);
+    graphics.SetInterpolationMode(Gdiplus::InterpolationModeNearestNeighbor);
+    graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
+    graphics.SetSmoothingMode(Gdiplus::SmoothingModeNone);
+    graphics.SetCompositingQuality(Gdiplus::CompositingQualityHighSpeed);
     for (int row = 0; row < kMaterialBinRows; ++row) {
         for (int column = 0; column < kMaterialBinColumns; ++column) {
             const int binIndex = row * kMaterialBinColumns + column;
@@ -2173,7 +2229,24 @@ void DrawPngSockets(HDC dc, const Layout& layout) {
                 centerX - socketSize / 2 + socketSize,
                 centerY - socketSize / 2 + socketSize
             };
-            DrawPngSocket(dc, binIndex, socket);
+            if (gMaterialShadowImages[binIndex] != nullptr) {
+                graphics.DrawImage(
+                    gMaterialShadowImages[binIndex],
+                    Gdiplus::Rect(socket.left, socket.top,
+                        socket.right - socket.left,
+                        socket.bottom - socket.top),
+                    0, 0, kMaterialImageSourceSize,
+                    kMaterialImageSourceSize, Gdiplus::UnitPixel);
+            }
+            if (gMaterialImages[binIndex] != nullptr) {
+                graphics.DrawImage(
+                    gMaterialImages[binIndex],
+                    Gdiplus::Rect(socket.left, socket.top,
+                        socket.right - socket.left,
+                        socket.bottom - socket.top),
+                    0, 0, kMaterialImageSourceSize,
+                    kMaterialImageSourceSize, Gdiplus::UnitPixel);
+            }
         }
     }
 }
@@ -2199,32 +2272,82 @@ bool RecipeContainsMaterial(const DialogueTree& tree, const wchar_t* id) {
         });
 }
 
+int MaterialIndexFromId(const wchar_t* id) {
+    for (int index = 0; index < kMaterialBinCount; ++index) {
+        if (std::wcscmp(kMaterialIds[index], id) == 0) {
+            return index;
+        }
+    }
+    return -1;
+}
+
+bool SubmissionContainsMaterial(const wchar_t* id) {
+    const int materialIndex = MaterialIndexFromId(id);
+    if (materialIndex < 0) {
+        return false;
+    }
+    for (int index = 0; index < gMaterialCloneCount; ++index) {
+        if (gMaterialClones[index].materialIndex == materialIndex) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool SubmissionContainsOnly(int firstMaterial, int secondMaterial = -1) {
+    if (gMaterialCloneCount == 0) {
+        return false;
+    }
+    for (int index = 0; index < gMaterialCloneCount; ++index) {
+        const int material = gMaterialClones[index].materialIndex;
+        if (material != firstMaterial && material != secondMaterial) {
+            return false;
+        }
+    }
+    return true;
+}
+
 void StartCompletionPresentation() {
     DialogueTree* tree = CurrentDialogueTree();
     if (tree == nullptr || gMaterialCloneCount == 0) {
         return;
     }
-    const bool hasSeaweed = RecipeContainsMaterial(*tree, L"seaweed_and_rice");
-    const bool hasMint = RecipeContainsMaterial(*tree, L"mint_chocolate");
-    const bool hasTortilla = RecipeContainsMaterial(*tree, L"tortilla");
+    const int seaweedIndex = MaterialIndexFromId(L"seaweed_and_rice");
+    const int mintIndex = MaterialIndexFromId(L"mint_chocolate");
+    const int chocolateIndex = MaterialIndexFromId(L"chocolate");
+    const bool hasSeaweed = SubmissionContainsMaterial(L"seaweed_and_rice");
+    const bool hasMint = SubmissionContainsMaterial(L"mint_chocolate");
+    const bool hasChocolate = SubmissionContainsMaterial(L"chocolate");
+    const bool hasTortilla = SubmissionContainsMaterial(L"tortilla");
+    const bool hasLettuce = SubmissionContainsMaterial(L"lettuce");
+    const bool onlySeaweed = hasSeaweed
+        && SubmissionContainsOnly(seaweedIndex);
+    const bool onlyMintAndChocolate = hasMint
+        && hasChocolate
+        && SubmissionContainsOnly(mintIndex, chocolateIndex);
     const bool isKimbopX10 = tree->menuName == L"kimbopx10"
         || tree->menuName == L"kimbop_x10";
+    gCompletedFoodImageIndex = -1;
     if (isKimbopX10) {
         gCompletedFoodImageIndex = 2;
-    } else if (tree->menuName == L"mint_chocolate") {
-        gCompletedFoodImageIndex = 5;
     } else if (hasSeaweed && hasMint) {
         gCompletedFoodImageIndex = 1;
+    } else if (onlySeaweed) {
+        gCompletedFoodImageIndex = 2;
     } else if (hasSeaweed) {
         gCompletedFoodImageIndex = 0;
     } else if (hasTortilla) {
         gCompletedFoodImageIndex = 3;
-    } else {
+    } else if (onlyMintAndChocolate) {
+        gCompletedFoodImageIndex = 5;
+    } else if (hasLettuce) {
         gCompletedFoodImageIndex = 4;
+    } else {
+        gCompletedFoodImageIndex = 6;
     }
 
     gCompletedFoodInstances.clear();
-    if (isKimbopX10) {
+    if (gCompletedFoodImageIndex >= 0 && isKimbopX10) {
         CompletedFoodInstance positions[5]{
             {kCompletedFoodShadowBlurRadius,
              kCompletedFoodShadowBlurRadius},
@@ -2363,7 +2486,15 @@ void DrawCompletionPresentation(HDC dc, const Layout& layout) {
 }
 
 void DrawCuttingBoardAndClones(HDC dc, const Layout& layout) {
-    if (gCuttingBoardImage != nullptr) {
+    // 같은 HDC에는 GDI+ Graphics를 중첩해서 만들지 않는다. 중첩하면
+    // 완성 음식 쪽 Graphics가 조리대 viewport 원점을 잃을 수 있다.
+    {
+        Gdiplus::Graphics graphics(dc);
+        graphics.SetInterpolationMode(Gdiplus::InterpolationModeNearestNeighbor);
+        graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
+        graphics.SetSmoothingMode(Gdiplus::SmoothingModeNone);
+        graphics.SetCompositingQuality(Gdiplus::CompositingQualityHighSpeed);
+        if (gCuttingBoardImage != nullptr) {
         const double imageScale = (std::min)(
             kCuttingBoardWidth
                 / static_cast<double>(kCuttingBoardImageSourceWidth),
@@ -2379,34 +2510,49 @@ void DrawCuttingBoardAndClones(HDC dc, const Layout& layout) {
             + (kCuttingBoardHeight - imageHeight) / 2;
         const RECT imageArea = LogicalRect(
             layout, imageX, imageY, imageWidth, imageHeight);
-        Gdiplus::Graphics graphics(dc);
-        graphics.SetInterpolationMode(
-            Gdiplus::InterpolationModeNearestNeighbor);
-        graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
-        graphics.DrawImage(
-            gCuttingBoardImage,
-            Gdiplus::Rect(
-                imageArea.left,
-                imageArea.top,
-                imageArea.right - imageArea.left,
-                imageArea.bottom - imageArea.top),
-            0, 0,
-            kCuttingBoardImageSourceWidth,
-            kCuttingBoardImageSourceHeight,
-            Gdiplus::UnitPixel);
-    }
+            graphics.DrawImage(
+                gCuttingBoardImage,
+                Gdiplus::Rect(
+                    imageArea.left,
+                    imageArea.top,
+                    imageArea.right - imageArea.left,
+                    imageArea.bottom - imageArea.top),
+                0, 0,
+                kCuttingBoardImageSourceWidth,
+                kCuttingBoardImageSourceHeight,
+                Gdiplus::UnitPixel);
+        }
 
-    // 복제된 재료 PNG는 도마의 이동 좌표를 따라가며 도마 안에서만 표시된다.
-    for (int index = 0; index < gMaterialCloneCount; ++index) {
-        const MaterialClone& clone = gMaterialClones[index];
-        const RECT imageArea = LogicalRect(
-            layout,
-            clone.x,
-            clone.y,
-            clone.size,
-            clone.size);
-        DrawRotatedMaterialImage(
-            dc, clone.materialIndex, imageArea, clone.angle);
+        // 복제된 재료 PNG는 도마의 이동 좌표를 따라가며 도마 안에서만 표시된다.
+        for (int index = 0; index < gMaterialCloneCount; ++index) {
+            const MaterialClone& clone = gMaterialClones[index];
+            const RECT imageArea = LogicalRect(
+                layout,
+                clone.x,
+                clone.y,
+                clone.size,
+                clone.size);
+            if (clone.materialIndex < 0
+                || clone.materialIndex >= kMaterialBinCount
+                || gMaterialImages[clone.materialIndex] == nullptr) {
+                continue;
+            }
+            const Gdiplus::GraphicsState state = graphics.Save();
+            const float width = static_cast<float>(
+                imageArea.right - imageArea.left);
+            const float height = static_cast<float>(
+                imageArea.bottom - imageArea.top);
+            graphics.TranslateTransform(
+                (imageArea.left + imageArea.right) * 0.5f,
+                (imageArea.top + imageArea.bottom) * 0.5f);
+            graphics.RotateTransform(clone.angle);
+            graphics.DrawImage(
+                gMaterialImages[clone.materialIndex],
+                Gdiplus::RectF(-width * 0.5f, -height * 0.5f, width, height),
+                0, 0, kMaterialImageSourceSize, kMaterialImageSourceSize,
+                Gdiplus::UnitPixel);
+            graphics.Restore(state);
+        }
     }
     DrawCompletionPresentation(dc, layout);
 }
@@ -2486,30 +2632,31 @@ void AddClickStars(int designX, int designY) {
             direction * RandomRange(180, 300)
         });
     }
+    // 이전 파티클이 없던 시간은 새 파티클의 첫 이동량에 포함하지 않는다.
+    gLastStarParticleUpdateTime = GetTickCount64();
 }
 
 void DrawStarParticles(HDC dc, const Layout& layout) {
-    Gdiplus::Graphics graphics(dc);
-    graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
-    Gdiplus::SolidBrush brush(Gdiplus::Color(255, 255, 255, 255));
     constexpr double pi = 3.14159265358979323846;
     constexpr int pointCount = 10;
     for (const StarParticle& particle : gStarParticles) {
         const POINT center = LogicalPoint(layout, particle.x, particle.y);
         const double outerRadius = kStarParticleSize * layout.scale;
         const double innerRadius = outerRadius * 0.42;
-        Gdiplus::PointF points[pointCount]{};
+        POINT points[pointCount]{};
         for (int point = 0; point < pointCount; ++point) {
             const double radius = (point % 2 == 0)
                 ? outerRadius
                 : innerRadius;
             const double radians = (
                 particle.angle - 90.0 + point * 36.0) * pi / 180.0;
-            points[point] = Gdiplus::PointF(
-                static_cast<float>(center.x + std::cos(radians) * radius),
-                static_cast<float>(center.y + std::sin(radians) * radius));
+            points[point] = {
+                static_cast<LONG>(std::lround(
+                    center.x + std::cos(radians) * radius)),
+                static_cast<LONG>(std::lround(
+                    center.y + std::sin(radians) * radius))};
         }
-        graphics.FillPolygon(&brush, points, pointCount);
+        FillPolygon(dc, points, pointCount, RGB(0xff, 0xff, 0xff));
     }
 }
 
@@ -2710,7 +2857,6 @@ void StartRandomLine(const std::vector<std::wstring>& lines) {
         return;
     }
     const std::wstring& line = lines[NextRandom() % lines.size()];
-    gNarrationHistory.push_back(line);
     gIsNarrationHistoryReplay = false;
     StartNarrationText(line);
 }
@@ -2966,9 +3112,9 @@ int SelectRandomDialogueCategoryIndex() {
         }
     }
 
-    const unsigned int normalChance = gCurrentDay <= 2
-        ? 50u
-        : (gCurrentDay <= 4 ? 30u : 0u);
+    const unsigned int normalChance = gCurrentDay >= 5
+        ? 0u
+        : (gCurrentDay <= 2 ? 50u : 30u);
     if (normalCategory >= 0 && NextRandom() % 100 < normalChance) {
         return normalCategory;
     }
@@ -3029,6 +3175,10 @@ void StartRandomDialogueTree() {
             && gCurrentDialogueTree >= excludedMenuIndex) {
             ++gCurrentDialogueTree;
         }
+    }
+    if (gCurrentDialogueTree < 0
+        || gCurrentDialogueTree >= static_cast<int>(category.menus.size())) {
+        gCurrentDialogueTree = 0;
     }
     ++gCurrentDayNpcCount;
     gPreviousDialogueMenuName =
@@ -3220,18 +3370,29 @@ int RewardErrorCount(int actualErrorCount) {
 constexpr long long CalculateNextDailyRevenueGoal(
     long long currentGoal,
     long long currentRevenue,
-    bool goalMet) {
-    const int additionTenths = goalMet ? 8 : 9;
-    const long long nextGoal = currentGoal
-        + currentRevenue * additionTenths / 10;
+    bool goalMet,
+    int nextDay) {
+    const int additionTenths = goalMet ? 6 : 7;
+    const long long calculatedIncrease =
+        currentRevenue * additionTenths / 10;
+    const long long maximumIncrease = nextDay >= 6
+        ? kMaximumDailyRevenueGoalIncreaseFromDay6
+        : kMaximumDailyRevenueGoalIncrease;
+    const long long appliedIncrease = (std::min)(
+        maximumIncrease,
+        calculatedIncrease);
+    const long long adjustedGoal = (std::max)(currentGoal, currentRevenue);
+    const long long nextGoal = adjustedGoal + appliedIncrease;
     return (std::max)(kInitialDailyRevenueGoal, nextGoal);
 }
 
-static_assert(CalculateNextDailyRevenueGoal(1000, 0, true) == 1000);
-static_assert(CalculateNextDailyRevenueGoal(1000, 1000, true) == 1800);
-static_assert(CalculateNextDailyRevenueGoal(1800, 1000, true) == 2600);
-static_assert(CalculateNextDailyRevenueGoal(1000, 4000, true) == 4200);
-static_assert(CalculateNextDailyRevenueGoal(1000, 4000, false) == 4600);
+static_assert(CalculateNextDailyRevenueGoal(1000, 0, true, 2) == 1000);
+static_assert(CalculateNextDailyRevenueGoal(1000, 1000, true, 2) == 1600);
+static_assert(CalculateNextDailyRevenueGoal(1800, 1000, true, 2) == 2400);
+static_assert(CalculateNextDailyRevenueGoal(1000, 4000, true, 2) == 6400);
+static_assert(CalculateNextDailyRevenueGoal(1000, 4000, false, 2) == 6800);
+static_assert(CalculateNextDailyRevenueGoal(1000, 10000, true, 5) == 15400);
+static_assert(CalculateNextDailyRevenueGoal(1000, 12000, false, 6) == 20000);
 
 int CurrentOrderBaseReward() {
     if (gCurrentDialogueCategory < 0
@@ -3494,7 +3655,8 @@ void StartNextDay(ULONGLONG now) {
     gDailyRevenueGoal = CalculateNextDailyRevenueGoal(
         gDailyRevenueGoal,
         gEarnedMoney,
-        gCurrentDayGoalMet);
+        gCurrentDayGoalMet,
+        gCurrentDay + 1);
     ++gCurrentDay;
     gCurrentDayNpcCount = 0;
     gDayRevenue = 0;
@@ -3604,8 +3766,9 @@ void DrawNarration(HDC dc, const Layout& layout) {
         const double fullTextWidth = MeasureBitmapText(
             gNarrationBitmapFont, gCurrentNarrationText.c_str(),
             dialogueHeight);
-        const double textRightEdge = kNarrationBoxX
-            + kNarrationBoxWidth - 24.0;
+        // 박스 밖의 글자는 유지하고 실제 게임 창의 오른쪽 끝에서만
+        // overflow 연출을 시작한다.
+        const double textRightEdge = kDesignWidth;
         const bool shouldAnimateOverflow = gIsNarrationTyping
             && textX + fullTextWidth > textRightEdge;
         gIsNarrationOverflowAnimating = shouldAnimateOverflow;
@@ -3721,9 +3884,7 @@ void DrawNarration(HDC dc, const Layout& layout) {
         gCurrentNarrationText.c_str(),
         static_cast<int>(gCurrentNarrationText.size()),
         &fullTextSize);
-    const RECT narrationBox = NarrationBoxRect(layout);
-    const int textRightEdge = narrationBox.right
-        - static_cast<int>(std::lround(24.0 * layout.scale));
+    const int textRightEdge = LogicalPoint(layout, kDesignWidth, 0).x;
     const bool shouldAnimateOverflow = gIsNarrationTyping
         && textPosition.x + fullTextSize.cx > textRightEdge;
     gIsNarrationOverflowAnimating = shouldAnimateOverflow;
@@ -4071,6 +4232,12 @@ RECT StartBusinessButtonRect() {
     };
 }
 
+int MoneyFontHeight(long long value, int baseHeight = kMoneyFontHeight) {
+    return value >= kSixDigitMoneyThreshold
+        ? (std::max)(1, baseHeight - kLargeMoneyFontReduction)
+        : baseHeight;
+}
+
 void DrawMoneyInterface(
     HDC dc,
     const Layout& layout,
@@ -4123,7 +4290,8 @@ void DrawMoneyInterface(
         const std::wstring amount = std::to_wstring(
             showOwnedMoney ? gOwnedMoney : gEarnedMoney);
         DrawBitmapTextInRect(
-            targetDc, layout, textArea, amount.c_str(), kMoneyFontHeight,
+            targetDc, layout, textArea, amount.c_str(),
+            MoneyFontHeight(showOwnedMoney ? gOwnedMoney : gEarnedMoney),
             RGB(0x2a, 0x2a, 0x2a), kNarrationFontName,
             DT_LEFT | DT_VCENTER | DT_SINGLELINE);
     });
@@ -4164,7 +4332,8 @@ void DrawObjectiveInterface(HDC dc, const Layout& layout) {
         logicalArea.top + kMoneyCoinDisplaySize};
     const std::wstring amount = std::to_wstring(gDailyRevenueGoal);
     DrawBitmapTextInRect(
-        dc, layout, textArea, amount.c_str(), kMoneyFontHeight,
+        dc, layout, textArea, amount.c_str(),
+        MoneyFontHeight(gDailyRevenueGoal),
         RGB(0x2a, 0x2a, 0x2a), kNarrationFontName,
         DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
 }
@@ -4486,7 +4655,8 @@ void DrawSettlement(HDC dc, const Layout& layout) {
                 receiptY + 85 + row * lineHeight,
                 columnWidth - 8,
                 DT_LEFT,
-                lineFontHeight,
+                MoneyFontHeight(
+                    gDailyRevenueHistory[index], lineFontHeight),
                 lineHeight);
         }
 
@@ -4512,7 +4682,7 @@ void DrawSettlement(HDC dc, const Layout& layout) {
             receiptY + kReceiptHeight - 58,
             receiptWidth - 228,
             DT_RIGHT,
-            26);
+            MoneyFontHeight(gEarnedMoney, 26));
     } else {
         drawReceiptLine(
             L"DAY " + std::to_wstring(gCurrentDay) + L" 매출",
@@ -4536,7 +4706,8 @@ void DrawSettlement(HDC dc, const Layout& layout) {
                 receiptX + 210,
                 lineY,
                 receiptWidth - 234,
-                DT_RIGHT);
+                DT_RIGHT,
+                MoneyFontHeight(gDayMenuRevenue[index]));
             lineY += 42;
         }
         FillSolid(
@@ -4561,7 +4732,7 @@ void DrawSettlement(HDC dc, const Layout& layout) {
             receiptY + kReceiptHeight - 70,
             receiptWidth - 204,
             DT_RIGHT,
-            26);
+            MoneyFontHeight(gDayRevenue, 26));
     }
 
     const double buttonElapsed = elapsed
@@ -5099,6 +5270,7 @@ void ReturnToMainScreen(ULONGLONG now) {
     for (long long& revenue : gDayMenuRevenue) {
         revenue = 0;
     }
+    // 두 번째 목표 실패로 한 사이클이 끝나면 새 장사는 1일차부터 시작한다.
     gCurrentDay = 1;
     gCurrentDayNpcCount = 0;
     gDailyRevenueGoal = kInitialDailyRevenueGoal;
@@ -5523,18 +5695,9 @@ void DrawNpc(HDC dc, const Layout& layout) {
     graphics.SetTransform(&transform);
 
     const int halfSourceSize = kNpcSourceSize / 2;
-    // 배열 순서는 아래 레이어부터 위 레이어까지의 합성 순서다.
-    for (int part = 0; part < kNpcPartCount; ++part) {
-        const int variant = gSelectedNpcPartVariants[part];
-        if (variant < 0) {
-            continue;
-        }
-        Gdiplus::Image* image = gNpcPartImages[part][variant];
-        if (image == nullptr) {
-            continue;
-        }
+    if (gCompositedNpcImage != nullptr) {
         graphics.DrawImage(
-            image,
+            gCompositedNpcImage,
             Gdiplus::Rect(
                 -halfSourceSize,
                 -kNpcSourceSize,
@@ -5544,6 +5707,20 @@ void DrawNpc(HDC dc, const Layout& layout) {
             0,
             kNpcSourceSize,
             kNpcSourceSize,
+            Gdiplus::UnitPixel);
+        return;
+    }
+    // 캐시 생성에 실패한 경우에만 원본 파츠를 직접 그린다.
+    for (int part = 0; part < kNpcPartCount; ++part) {
+        const int variant = gSelectedNpcPartVariants[part];
+        if (variant < 0 || gNpcPartImages[part][variant] == nullptr) {
+            continue;
+        }
+        graphics.DrawImage(
+            gNpcPartImages[part][variant],
+            Gdiplus::Rect(-halfSourceSize, -kNpcSourceSize,
+                kNpcSourceSize, kNpcSourceSize),
+            0, 0, kNpcSourceSize, kNpcSourceSize,
             Gdiplus::UnitPixel);
     }
 }
@@ -5724,7 +5901,42 @@ void StartPreGameMessage(ULONGLONG now) {
     gPreGameMessageIndex = static_cast<int>(
         NextRandom() % std::size(kPreGameMessages));
     gPreGameMessageStartTime = now;
+    gIsPreGameMessageSkipping = false;
+    gPreGameMessageFadeOutStartTime = 0;
+    gPreGameMessageFadeOutStartOpacity = 1.0;
     gScreenState = ScreenState::PreGameMessage;
+}
+
+double PreGameMessageOpacity(ULONGLONG now) {
+    if (gIsPreGameMessageSkipping) {
+        const double elapsed = (
+            now - gPreGameMessageFadeOutStartTime) / 1000.0;
+        return gPreGameMessageFadeOutStartOpacity
+            * (1.0 - SmoothStep(
+                elapsed / kPreGameMessageFadeSeconds));
+    }
+    const double elapsed = (now - gPreGameMessageStartTime) / 1000.0;
+    const double fadeOutStart = kPreGameMessageFadeSeconds
+        + kPreGameMessageHoldSeconds;
+    if (elapsed < kPreGameMessageFadeSeconds) {
+        return SmoothStep(elapsed / kPreGameMessageFadeSeconds);
+    }
+    if (elapsed > fadeOutStart) {
+        return 1.0 - SmoothStep(
+            (elapsed - fadeOutStart) / kPreGameMessageFadeSeconds);
+    }
+    return 1.0;
+}
+
+void BeginPreGameMessageFadeOut(ULONGLONG now) {
+    if (gScreenState != ScreenState::PreGameMessage
+        || gIsPreGameMessageSkipping) {
+        return;
+    }
+    gPreGameMessageFadeOutStartOpacity =
+        PreGameMessageOpacity(now);
+    gPreGameMessageFadeOutStartTime = now;
+    gIsPreGameMessageSkipping = true;
 }
 
 void DrawPreGameMessage(HDC dc, const RECT& client) {
@@ -5732,17 +5944,7 @@ void DrawPreGameMessage(HDC dc, const RECT& client) {
     if (client.right <= client.left || client.bottom <= client.top) {
         return;
     }
-    const double elapsed = (
-        GetTickCount64() - gPreGameMessageStartTime) / 1000.0;
-    const double fadeOutStart = kPreGameMessageFadeSeconds
-        + kPreGameMessageHoldSeconds;
-    double opacity = 1.0;
-    if (elapsed < kPreGameMessageFadeSeconds) {
-        opacity = SmoothStep(elapsed / kPreGameMessageFadeSeconds);
-    } else if (elapsed > fadeOutStart) {
-        opacity = 1.0 - SmoothStep(
-            (elapsed - fadeOutStart) / kPreGameMessageFadeSeconds);
-    }
+    const double opacity = PreGameMessageOpacity(GetTickCount64());
     const Layout layout = GetLayout(client);
     const RECT messageArea{
         20,
@@ -6214,6 +6416,159 @@ void SetSoundPlayerVolume(
     mciSendStringW(command.c_str(), nullptr, 0, nullptr);
 }
 
+struct SfxThreadContext {
+    bool npcOnly;
+    HANDLE readyEvent;
+};
+
+SfxThreadContext gGeneralSfxThreadContext{false, nullptr};
+SfxThreadContext gNpcSfxThreadContext{true, nullptr};
+
+DWORD CALLBACK SfxThreadProcedure(void* parameter) {
+    const SfxThreadContext& context =
+        *static_cast<SfxThreadContext*>(parameter);
+    const size_t npcIndex = static_cast<size_t>(SoundEffect::NpcTalking);
+    const auto belongsToThread = [&](size_t index) {
+        return context.npcOnly ? index == npcIndex : index != npcIndex;
+    };
+    // PostThreadMessage를 받기 위한 큐를 사운드 스레드 안에서 생성한다.
+    MSG queuedMessage{};
+    PeekMessageW(&queuedMessage, nullptr, WM_USER, WM_USER, PM_NOREMOVE);
+
+    bool opened[static_cast<size_t>(SoundEffect::Count)]{};
+    std::wstring aliases[static_cast<size_t>(SoundEffect::Count)];
+    for (size_t index = 0; index < std::size(gSoundEffects); ++index) {
+        if (!belongsToThread(index)) {
+            continue;
+        }
+        aliases[index] = context.npcOnly
+            ? L"worker_npc_sfx"
+            : L"worker_sfx_" + std::to_wstring(index);
+        const std::wstring absolutePath = gAssetsDirectory
+            + gSoundEffects[index].relativePath;
+        const std::wstring command = L"open \"" + absolutePath
+            + L"\" type mpegvideo alias " + aliases[index];
+        opened[index] = mciSendStringW(
+            command.c_str(), nullptr, 0, nullptr) == 0;
+    }
+
+    auto applyVolume = [&](int masterPermille) {
+        for (size_t index = 0; index < std::size(gSoundEffects); ++index) {
+            if (!belongsToThread(index) || !opened[index]) {
+                continue;
+            }
+            const int volume = static_cast<int>(std::lround(std::clamp(
+                masterPermille / 1000.0 * kMasterSoundOutputScale
+                    * gSoundEffects[index].volumeScale,
+                0.0, 1.0) * 1000.0));
+            const std::wstring command = L"setaudio " + aliases[index]
+                + L" volume to " + std::to_wstring(volume);
+            mciSendStringW(command.c_str(), nullptr, 0, nullptr);
+        }
+    };
+    applyVolume(static_cast<int>(std::lround(gMasterSoundVolume * 1000.0)));
+    SetEvent(context.readyEvent);
+
+    MSG message{};
+    while (GetMessageW(&message, nullptr, 0, 0) > 0) {
+        if (message.message == kSfxThreadPlayMessage) {
+            const size_t index = static_cast<size_t>(message.wParam);
+            if (index < std::size(gSoundEffects)
+                && belongsToThread(index) && opened[index]) {
+                if (context.npcOnly) {
+                    // MP3 디코더가 80ms 글자 주기보다 느려도 예전
+                    // 요청이 누적되어 뒤늦게 재생되지 않도록 병합한다.
+                    MSG staleNpcRequest{};
+                    while (PeekMessageW(
+                            &staleNpcRequest, nullptr,
+                            kSfxThreadPlayMessage,
+                            kSfxThreadPlayMessage,
+                            PM_REMOVE)) {
+                    }
+                }
+                const std::wstring stopCommand = L"stop " + aliases[index];
+                const std::wstring playCommand = L"play " + aliases[index]
+                    + L" from 0";
+                mciSendStringW(stopCommand.c_str(), nullptr, 0, nullptr);
+                mciSendStringW(playCommand.c_str(), nullptr, 0, nullptr);
+            }
+        } else if (message.message == kSfxThreadVolumeMessage) {
+            applyVolume(static_cast<int>(message.wParam));
+        }
+    }
+
+    for (size_t index = 0; index < std::size(gSoundEffects); ++index) {
+        if (belongsToThread(index) && opened[index]) {
+            const std::wstring command = L"close " + aliases[index];
+            mciSendStringW(command.c_str(), nullptr, 0, nullptr);
+        }
+    }
+    return 0;
+}
+
+void StartSfxThread() {
+    gSfxThreadReadyEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    if (gSfxThreadReadyEvent == nullptr) {
+        return;
+    }
+    gGeneralSfxThreadContext.readyEvent = gSfxThreadReadyEvent;
+    gSfxThread = CreateThread(
+        nullptr, 0, SfxThreadProcedure, &gGeneralSfxThreadContext,
+        0, &gSfxThreadId);
+    if (gSfxThread == nullptr) {
+        CloseHandle(gSfxThreadReadyEvent);
+        gSfxThreadReadyEvent = nullptr;
+        gSfxThreadId = 0;
+        return;
+    }
+    WaitForSingleObject(gSfxThreadReadyEvent, 3000);
+
+    gNpcSfxThreadReadyEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    if (gNpcSfxThreadReadyEvent == nullptr) {
+        return;
+    }
+    gNpcSfxThreadContext.readyEvent = gNpcSfxThreadReadyEvent;
+    gNpcSfxThread = CreateThread(
+        nullptr, 0, SfxThreadProcedure, &gNpcSfxThreadContext,
+        0, &gNpcSfxThreadId);
+    if (gNpcSfxThread == nullptr) {
+        CloseHandle(gNpcSfxThreadReadyEvent);
+        gNpcSfxThreadReadyEvent = nullptr;
+        gNpcSfxThreadId = 0;
+        return;
+    }
+    WaitForSingleObject(gNpcSfxThreadReadyEvent, 3000);
+}
+
+void StopSfxThread() {
+    if (gNpcSfxThreadId != 0) {
+        PostThreadMessageW(gNpcSfxThreadId, WM_QUIT, 0, 0);
+    }
+    if (gSfxThreadId != 0) {
+        PostThreadMessageW(gSfxThreadId, WM_QUIT, 0, 0);
+    }
+    if (gNpcSfxThread != nullptr) {
+        WaitForSingleObject(gNpcSfxThread, 3000);
+        CloseHandle(gNpcSfxThread);
+    }
+    if (gSfxThread != nullptr) {
+        WaitForSingleObject(gSfxThread, 3000);
+        CloseHandle(gSfxThread);
+    }
+    if (gSfxThreadReadyEvent != nullptr) {
+        CloseHandle(gSfxThreadReadyEvent);
+    }
+    if (gNpcSfxThreadReadyEvent != nullptr) {
+        CloseHandle(gNpcSfxThreadReadyEvent);
+    }
+    gSfxThread = nullptr;
+    gSfxThreadReadyEvent = nullptr;
+    gSfxThreadId = 0;
+    gNpcSfxThread = nullptr;
+    gNpcSfxThreadReadyEvent = nullptr;
+    gNpcSfxThreadId = 0;
+}
+
 void ApplyMasterSoundVolume() {
     for (const SoundEffectPlayer& sound : gSoundEffects) {
         SetSoundPlayerVolume(sound, 1.0);
@@ -6224,6 +6579,20 @@ void ApplyMasterSoundVolume() {
     SetSoundPlayerVolume(
         gBusinessMusicAlternate,
         gBusinessMusicVolumeScale * gBusinessMusicPlayerMix[1]);
+    if (gSfxThreadId != 0) {
+        PostThreadMessageW(
+            gSfxThreadId,
+            kSfxThreadVolumeMessage,
+            static_cast<WPARAM>(std::lround(gMasterSoundVolume * 1000.0)),
+            0);
+    }
+    if (gNpcSfxThreadId != 0) {
+        PostThreadMessageW(
+            gNpcSfxThreadId,
+            kSfxThreadVolumeMessage,
+            static_cast<WPARAM>(std::lround(gMasterSoundVolume * 1000.0)),
+            0);
+    }
 }
 
 void OpenSoundPlayer(SoundEffectPlayer& sound) {
@@ -6239,9 +6608,12 @@ void OpenSoundPlayer(SoundEffectPlayer& sound) {
         command.c_str(), nullptr, 0, nullptr) == 0;
 }
 
-void PreparePlayerClickSound() {
-    SoundEffectPlayer& sound = gSoundEffects[
-        static_cast<size_t>(SoundEffect::PlayerClick)];
+void PrepareClickSound(SoundEffect effect) {
+    const size_t index = static_cast<size_t>(effect);
+    if (index >= kPreparedClickSoundCount) {
+        return;
+    }
+    SoundEffectPlayer& sound = gSoundEffects[index];
     if (!sound.isOpen) {
         return;
     }
@@ -6250,15 +6622,78 @@ void PreparePlayerClickSound() {
     mciSendStringW(seekCommand.c_str(), nullptr, 0, nullptr);
     const std::wstring cueCommand = L"cue "
         + std::wstring(sound.alias) + L" output";
-    gIsPlayerClickPrepared = mciSendStringW(
+    gIsClickSoundPrepared[index] = mciSendStringW(
         cueCommand.c_str(), nullptr, 0, nullptr) == 0;
+}
+
+struct AsyncMciPlayRequest {
+    std::wstring command;
+    HWND notificationWindow;
+};
+
+DWORD CALLBACK RunMciPlayCommand(void* parameter) {
+    AsyncMciPlayRequest* request =
+        static_cast<AsyncMciPlayRequest*>(parameter);
+    mciSendStringW(
+        request->command.c_str(), nullptr, 0, request->notificationWindow);
+    delete request;
+    return 0;
+}
+
+void PlayMciCommandWithoutBlockingUi(
+    const std::wstring& command,
+    HWND notificationWindow) {
+    AsyncMciPlayRequest* request = new AsyncMciPlayRequest{
+        command, notificationWindow};
+    if (!QueueUserWorkItem(
+            RunMciPlayCommand, request, WT_EXECUTEDEFAULT)) {
+        // 효과음보다 프레임 유지가 우선이므로 큐 생성 실패 시 재생을 건너뛴다.
+        delete request;
+    }
+}
+
+struct AsyncClickSoundPrepareRequest {
+    size_t index;
+    HWND notificationWindow;
+};
+
+DWORD CALLBACK RunClickSoundPrepare(void* parameter) {
+    AsyncClickSoundPrepareRequest* request =
+        static_cast<AsyncClickSoundPrepareRequest*>(parameter);
+    const size_t index = request->index;
+    bool prepared = false;
+    if (index < kPreparedClickSoundCount
+        && gSoundEffects[index].isOpen) {
+        // MCI 문자열 별칭은 생성 스레드에 종속될 수 있으므로 작업
+        // 스레드에서는 프로세스 전체에서 유효한 장치 ID를 사용한다.
+        const std::wstring device = std::to_wstring(
+            gPreparedClickSoundDeviceIds[index]);
+        const std::wstring seekCommand = L"seek " + device + L" to start";
+        const std::wstring cueCommand = L"cue " + device + L" output";
+        mciSendStringW(seekCommand.c_str(), nullptr, 0, nullptr);
+        prepared = mciSendStringW(
+            cueCommand.c_str(), nullptr, 0, nullptr) == 0;
+    }
+    PostMessageW(
+        request->notificationWindow,
+        kClickSoundPreparedMessage,
+        static_cast<WPARAM>(index),
+        prepared ? 1 : 0);
+    delete request;
+    return 0;
+}
+
+void PrepareClickSoundWithoutBlockingUi(size_t index) {
+    AsyncClickSoundPrepareRequest* request =
+        new AsyncClickSoundPrepareRequest{index, gSoundNotificationWindow};
+    if (!QueueUserWorkItem(
+            RunClickSoundPrepare, request, WT_EXECUTEDEFAULT)) {
+        delete request;
+    }
 }
 
 void InitializeSoundSystem(HWND notificationWindow) {
     gSoundNotificationWindow = notificationWindow;
-    for (SoundEffectPlayer& sound : gSoundEffects) {
-        OpenSoundPlayer(sound);
-    }
     OpenSoundPlayer(gBusinessMusic);
     OpenSoundPlayer(gBusinessMusicAlternate);
     if (gBusinessMusic.isOpen && gBusinessMusicAlternate.isOpen) {
@@ -6278,15 +6713,11 @@ void InitializeSoundSystem(HWND notificationWindow) {
         }
     }
     ApplyMasterSoundVolume();
-    SoundEffectPlayer& clickSound = gSoundEffects[
-        static_cast<size_t>(SoundEffect::PlayerClick)];
-    if (clickSound.isOpen) {
-        gPlayerClickDeviceId = mciGetDeviceIDW(clickSound.alias);
-        PreparePlayerClickSound();
-    }
+    StartSfxThread();
 }
 
 void ShutdownSoundSystem() {
+    StopSfxThread();
     for (SoundEffectPlayer& sound : gSoundEffects) {
         if (sound.isOpen) {
             const std::wstring command = L"close "
@@ -6308,35 +6739,56 @@ void ShutdownSoundSystem() {
         gBusinessMusicAlternate.isOpen = false;
     }
     gSoundNotificationWindow = nullptr;
-    gPlayerClickDeviceId = 0;
-    gIsPlayerClickPrepared = false;
+    for (size_t index = 0; index < kPreparedClickSoundCount; ++index) {
+        gPreparedClickSoundDeviceIds[index] = 0;
+        gIsClickSoundPrepared[index] = false;
+    }
 }
 
 void PlaySoundEffect(SoundEffect effect) {
     const size_t index = static_cast<size_t>(effect);
     if (gMasterSoundVolume <= 0.0
-        || index >= std::size(gSoundEffects)
-        || !gSoundEffects[index].isOpen) {
+        || index >= std::size(gSoundEffects)) {
         return;
     }
-    if (effect == SoundEffect::PlayerClick && gIsPlayerClickPrepared) {
+    const DWORD targetThreadId = effect == SoundEffect::NpcTalking
+        ? gNpcSfxThreadId
+        : gSfxThreadId;
+    if (targetThreadId != 0) {
+        PostThreadMessageW(
+            targetThreadId,
+            kSfxThreadPlayMessage,
+            static_cast<WPARAM>(index),
+            0);
+        return;
+    }
+    // 전용 스레드를 만들지 못한 경우 효과음을 생략해 프레임을 보호한다.
+    return;
+    /*
+    const bool isPreparedClickSound = index < kPreparedClickSoundCount;
+    const std::wstring clickDevice = isPreparedClickSound
+        ? std::to_wstring(gPreparedClickSoundDeviceIds[index])
+        : std::wstring();
+    if (isPreparedClickSound && gIsClickSoundPrepared[index]) {
         const std::wstring command = L"play "
-            + std::wstring(gSoundEffects[index].alias) + L" notify";
-        gIsPlayerClickPrepared = false;
-        mciSendStringW(
-            command.c_str(), nullptr, 0, gSoundNotificationWindow);
+            + clickDevice + L" notify";
+        gIsClickSoundPrepared[index] = false;
+        PlayMciCommandWithoutBlockingUi(command, gSoundNotificationWindow);
     } else {
         const std::wstring command = L"play "
-            + std::wstring(gSoundEffects[index].alias) + L" from 0"
-            + (effect == SoundEffect::PlayerClick ? L" notify" : L"");
-        mciSendStringW(
-            command.c_str(),
-            nullptr,
-            0,
-            effect == SoundEffect::PlayerClick
-                ? gSoundNotificationWindow
-                : nullptr);
+            + (isPreparedClickSound
+                ? clickDevice
+                : std::wstring(gSoundEffects[index].alias))
+            + L" from 0"
+            + (isPreparedClickSound ? L" notify" : L"");
+        if (isPreparedClickSound) {
+            PlayMciCommandWithoutBlockingUi(
+                command, gSoundNotificationWindow);
+        } else {
+            mciSendStringW(command.c_str(), nullptr, 0, nullptr);
+        }
     }
+    */
 }
 
 void StartBusinessMusic() {
@@ -6383,6 +6835,7 @@ void StopBusinessMusic() {
     gBusinessMusicFadeStartTime = 0;
     gBusinessMusicFadeStep = -1;
     gBusinessMusicPlaybackStartTime = 0;
+    gBusinessMusicScheduledStartTime = 0;
     gBusinessMusicCrossfadeStartTime = 0;
     gBusinessMusicCrossfadeStep = -1;
     gBusinessMusicActivePlayer = 0;
@@ -6504,10 +6957,22 @@ bool UpdateMasterVolumeFromSlider(int designX) {
 LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARAM lParam) {
     switch (message) {
     case MM_MCINOTIFY:
-        if (wParam == MCI_NOTIFY_SUCCESSFUL
-            && static_cast<MCIDEVICEID>(lParam)
-                == gPlayerClickDeviceId) {
-            PreparePlayerClickSound();
+        if (wParam == MCI_NOTIFY_SUCCESSFUL) {
+            const MCIDEVICEID completedDevice =
+                static_cast<MCIDEVICEID>(lParam);
+            for (size_t index = 0;
+                 index < kPreparedClickSoundCount;
+                 ++index) {
+                if (completedDevice == gPreparedClickSoundDeviceIds[index]) {
+                    PrepareClickSoundWithoutBlockingUi(index);
+                    break;
+                }
+            }
+        }
+        return 0;
+    case kClickSoundPreparedMessage:
+        if (wParam < kPreparedClickSoundCount) {
+            gIsClickSoundPrepared[wParam] = lParam != 0;
         }
         return 0;
     case WM_SETCURSOR:
@@ -6759,6 +7224,8 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
             return 0;
         }
         if (gScreenState == ScreenState::PreGameMessage) {
+            BeginPreGameMessageFadeOut(GetTickCount64());
+            InvalidateRect(window, nullptr, FALSE);
             return 0;
         }
         const RECT trophy = TrophyLogicalRect();
@@ -6804,7 +7271,10 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
                 designX,
                 designY);
             if (clickedTitleButton == 0) {
-                StartBusinessMusic();
+                // 버튼음이 MCI 내부 잠금을 먼저 획득하도록
+                // BGM의 여러 시작 명령만 아주 짧게 뒤로 예약한다.
+                gBusinessMusicScheduledStartTime = GetTickCount64()
+                    + kBusinessMusicStartDelayMilliseconds;
                 StartPreparationScreenTransition();
                 InvalidateRect(window, nullptr, FALSE);
             } else if (clickedTitleButton == 1) {
@@ -6867,8 +7337,8 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
             InvalidateRect(window, nullptr, FALSE);
         } else if (IsCookingStateActive()
             && PtInRect(&resetButton, mousePoint)) {
-            StartCompletionPresentation();
             FinishCookingOrder();
+            StartCompletionPresentation();
             gMaterialCloneCount = 0;
             if (!gIsCompletionPresentationActive) {
                 StartCookingTransition(CookingState::NonCooking);
@@ -6887,6 +7357,9 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
             AddMaterialClone(clickedSocket);
             AddClickStars(designX, designY);
             InvalidateRect(window, nullptr, FALSE);
+            // WM_PAINT가 다음 저우선순위 타이머까지 밀리지 않게 첫
+            // 파티클 프레임과 추가된 재료를 클릭 즉시 표시한다.
+            UpdateWindow(window);
         } else if (!gIsCookingTransitionRunning
             && gCookingState == CookingState::Cooking
             && isInsidePlayArea
@@ -6927,6 +7400,11 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
                 return 0;
             }
             gLastAnimationTickTime = now;
+            if (gBusinessMusicScheduledStartTime != 0
+                && now >= gBusinessMusicScheduledStartTime) {
+                gBusinessMusicScheduledStartTime = 0;
+                StartBusinessMusic();
+            }
             UpdateBusinessMusicLoop(now);
             UpdateBusinessMusicFadeOut(now);
 
@@ -7016,10 +7494,17 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
                 const double totalSeconds =
                     kPreGameMessageFadeSeconds * 2.0
                     + kPreGameMessageHoldSeconds;
+                const bool fadeOutCompleted = gIsPreGameMessageSkipping
+                    ? now - gPreGameMessageFadeOutStartTime
+                        >= static_cast<ULONGLONG>(
+                            kPreGameMessageFadeSeconds * 1000.0)
+                    : elapsed >= totalSeconds;
                 visualChanged = true;
-                if (elapsed >= totalSeconds) {
+                if (fadeOutCompleted) {
                     gScreenState = ScreenState::PreparationFadingIn;
                     gScreenTransitionStartTime = now;
+                    gIsPreGameMessageSkipping = false;
+                    gPreGameMessageFadeOutStartTime = 0;
                 }
             } else if (gScreenState == ScreenState::PreparationFadingIn) {
                 const double elapsed = (
@@ -7342,6 +7827,7 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
 } // 이름 없는 네임스페이스
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
+    gStarParticles.reserve(kMaximumStarParticles);
     for (double& scale : gPngSocketScales) {
         scale = 1.0;
     }
