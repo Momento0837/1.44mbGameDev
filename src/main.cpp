@@ -2903,6 +2903,9 @@ void StartHoverNarrationText(const std::wstring& text) {
         gPausedNarrationWasHistoryReplay = gIsNarrationHistoryReplay;
     }
     gIsHoverNarrationActive = true;
+    // 히스토리를 중단하고 표시하는 호버 대사는 실제 NPC 대사로 취급한다.
+    // 히스토리 여부는 위에서 백업했으므로 복귀할 때만 다시 복원된다.
+    gIsNarrationHistoryReplay = false;
     StartNarrationText(text);
 }
 
