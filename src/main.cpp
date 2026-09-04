@@ -49,6 +49,10 @@ constexpr int kPngSocketSize = 64;
 constexpr int kMaterialImageSourceSize = 16;
 constexpr double kPngSocketHoverScale = 1.05;
 constexpr double kPngSocketEasingSpeed = 0.20;
+constexpr ULONGLONG kMaterialTooltipFadeMilliseconds = 300;
+constexpr double kMaterialTooltipFontHeight = 12.0;
+constexpr int kMaterialTooltipPadding = 5;
+constexpr BYTE kMaterialTooltipBackgroundOpacity = 204;
 constexpr int kMaterialBinVerticalOffset = 5;
 
 // 테이블 상호작용 영역과 이징 애니메이션 설정값이다.
@@ -130,9 +134,14 @@ constexpr wchar_t kTrophyPurchaseSoundPath[] = L"sounds\\trophy_purchase.mp3";
 constexpr wchar_t kReceiptSoundPath[] = L"sounds\\tearing_papers1.mp3";
 constexpr wchar_t kNpcTalkingSoundPath[] = L"sounds\\NPC_talking.mp3";
 constexpr wchar_t kBusinessMusicPath[] = L"sounds\\business_music.mp3";
+constexpr wchar_t kBusinessMusicAlternatePath[] =
+    L"sounds\\business_music_loop.mp3";
 constexpr double kMasterSoundOutputScale = 0.70;
 constexpr double kBusinessMusicFadeOutSeconds = 0.5;
 constexpr int kBusinessMusicFadeOutSteps = 10;
+// 44.1 kHz MP3 한 프레임(1152 samples)은 약 26.12ms이다.
+// 약 19프레임(약 496ms) 전에 다음 플레이어를 시작해 MCI 전환 지연을 숨긴다.
+constexpr ULONGLONG kBusinessMusicLoopCrossfadeMilliseconds = 500;
 constexpr int kOptionsBackButtonX = 20;
 constexpr int kOptionsBackButtonY = 20;
 constexpr int kOptionsBackButtonSize = 44;
@@ -377,6 +386,11 @@ constexpr wchar_t kMaterialIds[kMaterialBinCount][32] = {
     L"strawberry",
     L"chocolate"
 };
+constexpr wchar_t kMaterialDisplayNames[kMaterialBinCount][8] = {
+    L"또띠아", L"양상추", L"파프리카", L"당근", L"에그마요",
+    L"토마토", L"민트초코", L"김과 밥", L"우엉", L"단무지",
+    L"게살", L"시금치", L"딸기", L"초콜릿"
+};
 
 // 소실점 좌표는 플레이 영역의 왼쪽 위를 (0, 0)으로 삼는다.
 POINT gVanishingPoint{kDefaultVanishingPointX, kDefaultVanishingPointY};
@@ -452,6 +466,7 @@ long long gEarnedMoney = 0;
 long long gDayRevenue = 0;
 long long gDayMenuRevenue[3]{};
 int gCurrentDay = 1;
+int gCurrentDayNpcCount = 0;
 long long gDailyRevenueGoal = kInitialDailyRevenueGoal;
 bool gCurrentDayGoalMet = false;
 int gDailyGoalFailureCount = 0;
@@ -487,6 +502,9 @@ double gCookingTransitionTargetLift = 0.0;
 ULONGLONG gCookingTransitionStartTime = 0;
 int gHoveredPngSocket = -1;
 double gPngSocketScales[kMaterialBinCount]{};
+ULONGLONG gMaterialTooltipHoverStartTime = 0;
+int gMaterialTooltipIndex = -1;
+bool gIsMaterialTooltipFadingOut = false;
 struct MaterialClone {
     int materialIndex;
     int x;
@@ -567,6 +585,8 @@ SoundEffectPlayer gSoundEffects[] = {
 };
 SoundEffectPlayer gBusinessMusic{
     kBusinessMusicPath, L"bgm_business", false, 1.0};
+SoundEffectPlayer gBusinessMusicAlternate{
+    kBusinessMusicAlternatePath, L"bgm_business_alt", false, 1.0};
 HWND gSoundNotificationWindow = nullptr;
 MCIDEVICEID gPlayerClickDeviceId = 0;
 bool gIsPlayerClickPrepared = false;
@@ -575,12 +595,22 @@ bool gIsBusinessMusicFadingOut = false;
 ULONGLONG gBusinessMusicFadeStartTime = 0;
 double gBusinessMusicVolumeScale = 1.0;
 int gBusinessMusicFadeStep = -1;
+ULONGLONG gBusinessMusicLengthMilliseconds = 0;
+ULONGLONG gBusinessMusicPlaybackStartTime = 0;
+ULONGLONG gBusinessMusicCrossfadeStartTime = 0;
+int gBusinessMusicActivePlayer = 0;
+int gBusinessMusicCrossfadeStep = -1;
+bool gIsBusinessMusicLoopCrossfading = false;
+double gBusinessMusicPlayerMix[2]{1.0, 0.0};
 void PlaySoundEffect(SoundEffect effect);
 void StartBusinessMusic();
 void BeginBusinessMusicFadeOut(ULONGLONG now);
 void StopBusinessMusic();
 bool gIsNarrationActive = false;
 bool gIsNarrationTyping = false;
+bool gNarrationTypingSoundEnabled = true;
+bool gIsNarrationHistoryReplay = false;
+std::vector<std::wstring> gNarrationHistory;
 ULONGLONG gNarrationStartTime = 0;
 size_t gNarrationVisibleLength = 0;
 ULONGLONG gNarrationCompletedTime = 0;
@@ -633,6 +663,8 @@ std::wstring gPausedNarrationText;
 size_t gPausedNarrationVisibleLength = 0;
 bool gPausedNarrationWasActive = false;
 bool gPausedNarrationWasTyping = false;
+bool gPausedNarrationTypingSoundEnabled = true;
+bool gPausedNarrationWasHistoryReplay = false;
 bool gIsHoverNarrationActive = false;
 bool gWasNarrationRestoredFromHover = false;
 int gCurrentDialogueCategory = -1;
@@ -691,6 +723,11 @@ int gBackBufferHeight = 0;
 HDC gSceneBufferDc = nullptr;
 HBITMAP gSceneBufferBitmap = nullptr;
 HGDIOBJ gSceneBufferOldBitmap = nullptr;
+HDC gOpacityBufferDc = nullptr;
+HBITMAP gOpacityBufferBitmap = nullptr;
+HGDIOBJ gOpacityBufferOldBitmap = nullptr;
+int gOpacityBufferWidth = 0;
+int gOpacityBufferHeight = 0;
 
 std::wstring PlayerSavePath() {
     wchar_t executablePath[MAX_PATH]{};
@@ -2645,14 +2682,19 @@ DialogueTree* CurrentDialogueTree() {
     return &category.menus[gCurrentDialogueTree];
 }
 
-void StartNarrationText(const std::wstring& text) {
+void StartNarrationText(
+    const std::wstring& text,
+    bool typingSoundEnabled = true) {
     const ULONGLONG now = GetTickCount64();
     gCurrentNarrationText = text;
     gIsNarrationActive = true;
     gIsNarrationTyping = !text.empty();
+    gNarrationTypingSoundEnabled = typingSoundEnabled;
     gNarrationStartTime = now;
     gNarrationVisibleLength = text.empty() ? 0 : 1;
-    if (!text.empty() && !std::iswspace(text.front())) {
+    if (typingSoundEnabled
+        && !text.empty()
+        && !std::iswspace(text.front())) {
         PlaySoundEffect(SoundEffect::NpcTalking);
     }
     gNarrationCompletedTime = text.empty() ? now : 0;
@@ -2667,7 +2709,10 @@ void StartRandomLine(const std::vector<std::wstring>& lines) {
     if (lines.empty()) {
         return;
     }
-    StartNarrationText(lines[NextRandom() % lines.size()]);
+    const std::wstring& line = lines[NextRandom() % lines.size()];
+    gNarrationHistory.push_back(line);
+    gIsNarrationHistoryReplay = false;
+    StartNarrationText(line);
 }
 
 bool IsSocketNearMaterial(int socketIndex, int materialIndex);
@@ -2831,6 +2876,8 @@ void StartDialogueLine(
         StartNarrationText(L"");
         return;
     }
+    gNarrationHistory.push_back(lines[lineIndex]);
+    gIsNarrationHistoryReplay = false;
     StartNarrationText(lines[lineIndex]);
 }
 
@@ -2839,6 +2886,8 @@ void ClearHoverNarrationInterruption() {
     gPausedNarrationVisibleLength = 0;
     gPausedNarrationWasActive = false;
     gPausedNarrationWasTyping = false;
+    gPausedNarrationTypingSoundEnabled = true;
+    gPausedNarrationWasHistoryReplay = false;
     gIsHoverNarrationActive = false;
     gWasNarrationRestoredFromHover = false;
 }
@@ -2849,6 +2898,9 @@ void StartHoverNarrationText(const std::wstring& text) {
         gPausedNarrationVisibleLength = gNarrationVisibleLength;
         gPausedNarrationWasActive = gIsNarrationActive;
         gPausedNarrationWasTyping = gIsNarrationTyping;
+        gPausedNarrationTypingSoundEnabled =
+            gNarrationTypingSoundEnabled;
+        gPausedNarrationWasHistoryReplay = gIsNarrationHistoryReplay;
     }
     gIsHoverNarrationActive = true;
     StartNarrationText(text);
@@ -2867,6 +2919,9 @@ void ResumeInterruptedNarration() {
         gCurrentNarrationText.size());
     gIsNarrationTyping = gPausedNarrationWasTyping
         && gNarrationVisibleLength < gCurrentNarrationText.size();
+    gNarrationTypingSoundEnabled =
+        gPausedNarrationTypingSoundEnabled;
+    gIsNarrationHistoryReplay = gPausedNarrationWasHistoryReplay;
     if (gIsNarrationTyping) {
         const size_t completedCharacterIntervals =
             gNarrationVisibleLength > 0
@@ -2926,7 +2981,21 @@ void StartRandomDialogueTree() {
     }
     gCurrentNarrationName =
         gNarrationNames[NextRandom() % gNarrationNames.size()];
-    gCurrentDialogueCategory = SelectRandomDialogueCategoryIndex();
+    int forcedMenuIndex = -1;
+    if (gCurrentDay == 1 && gCurrentDayNpcCount < 3) {
+        for (size_t index = 0; index < gDialogueCategories.size(); ++index) {
+            if (gDialogueCategories[index].id == L"normal"
+                && gCurrentDayNpcCount
+                    < static_cast<int>(gDialogueCategories[index].menus.size())) {
+                gCurrentDialogueCategory = static_cast<int>(index);
+                forcedMenuIndex = gCurrentDayNpcCount;
+                break;
+            }
+        }
+    }
+    if (forcedMenuIndex < 0) {
+        gCurrentDialogueCategory = SelectRandomDialogueCategoryIndex();
+    }
     if (gCurrentDialogueCategory < 0) {
         return;
     }
@@ -2935,29 +3004,36 @@ void StartRandomDialogueTree() {
     if (category.menus.empty()) {
         return;
     }
-    int excludedMenuIndex = -1;
-    if (category.menus.size() > 1
-        && !gPreviousDialogueMenuName.empty()) {
-        for (size_t index = 0; index < category.menus.size(); ++index) {
-            if (category.menus[index].menuName
-                == gPreviousDialogueMenuName) {
-                excludedMenuIndex = static_cast<int>(index);
-                break;
+    if (forcedMenuIndex >= 0) {
+        gCurrentDialogueTree = forcedMenuIndex;
+    } else {
+        int excludedMenuIndex = -1;
+        if (category.menus.size() > 1
+            && !gPreviousDialogueMenuName.empty()) {
+            for (size_t index = 0; index < category.menus.size(); ++index) {
+                if (category.menus[index].menuName
+                    == gPreviousDialogueMenuName) {
+                    excludedMenuIndex = static_cast<int>(index);
+                    break;
+                }
             }
         }
+        const int availableMenuCount = static_cast<int>(category.menus.size())
+            - (excludedMenuIndex >= 0 ? 1 : 0);
+        gCurrentDialogueTree = static_cast<int>(
+            NextRandom() % availableMenuCount);
+        if (excludedMenuIndex >= 0
+            && gCurrentDialogueTree >= excludedMenuIndex) {
+            ++gCurrentDialogueTree;
+        }
     }
-    const int availableMenuCount = static_cast<int>(category.menus.size())
-        - (excludedMenuIndex >= 0 ? 1 : 0);
-    gCurrentDialogueTree = static_cast<int>(
-        NextRandom() % availableMenuCount);
-    if (excludedMenuIndex >= 0
-        && gCurrentDialogueTree >= excludedMenuIndex) {
-        ++gCurrentDialogueTree;
-    }
+    ++gCurrentDayNpcCount;
     gPreviousDialogueMenuName =
         category.menus[gCurrentDialogueTree].menuName;
     gCurrentDialogueStage = DialogueStage::Entry;
     gCurrentDialogueLineIndex = 0;
+    gNarrationHistory.clear();
+    gIsNarrationHistoryReplay = false;
     gLastNarrationHoverSocket = -1;
     ClearHoverNarrationInterruption();
     gHasCookingResult = false;
@@ -2991,7 +3067,17 @@ void CompleteNarrationTyping(ULONGLONG now) {
     }
 }
 
-void AdvanceNarration() {
+void StartRandomNarrationHistoryReplay() {
+    if (gNarrationHistory.empty()) {
+        return;
+    }
+    const std::wstring& line = gNarrationHistory[
+        NextRandom() % gNarrationHistory.size()];
+    gIsNarrationHistoryReplay = true;
+    StartNarrationText(L"'" + line + L"'", false);
+}
+
+void AdvanceNarration(bool allowHistoryReplay = true) {
     if (!gIsNarrationBoxInteractive) {
         return;
     }
@@ -3011,6 +3097,13 @@ void AdvanceNarration() {
     }
     gWasNarrationRestoredFromHover = false;
 
+    if (gIsNarrationHistoryReplay) {
+        if (allowHistoryReplay) {
+            StartRandomNarrationHistoryReplay();
+        }
+        return;
+    }
+
     DialogueTree* tree = CurrentDialogueTree();
     if (tree == nullptr) {
         return;
@@ -3019,11 +3112,21 @@ void AdvanceNarration() {
     if (gCurrentDialogueStage == DialogueStage::Entry) {
         gCurrentDialogueStage = DialogueStage::Additional;
         gCurrentDialogueLineIndex = 0;
-        StartDialogueLine(tree->additionalLines, gCurrentDialogueLineIndex);
+        if (tree->additionalLines.empty()) {
+            if (allowHistoryReplay) {
+                StartRandomNarrationHistoryReplay();
+            }
+        } else {
+            StartDialogueLine(
+                tree->additionalLines, gCurrentDialogueLineIndex);
+        }
     } else if (gCurrentDialogueStage == DialogueStage::Additional
         && gCurrentDialogueLineIndex + 1 < tree->additionalLines.size()) {
         ++gCurrentDialogueLineIndex;
         StartDialogueLine(tree->additionalLines, gCurrentDialogueLineIndex);
+    } else if (gCurrentDialogueStage == DialogueStage::Additional
+        && allowHistoryReplay) {
+        StartRandomNarrationHistoryReplay();
     }
 }
 
@@ -3113,18 +3216,19 @@ int RewardErrorCount(int actualErrorCount) {
 
 constexpr long long CalculateNextDailyRevenueGoal(
     long long currentGoal,
-    long long earnedMoney,
+    long long currentRevenue,
     bool goalMet) {
     const int additionTenths = goalMet ? 8 : 9;
     const long long nextGoal = currentGoal
-        + earnedMoney * additionTenths / 10;
+        + currentRevenue * additionTenths / 10;
     return (std::max)(kInitialDailyRevenueGoal, nextGoal);
 }
 
 static_assert(CalculateNextDailyRevenueGoal(1000, 0, true) == 1000);
 static_assert(CalculateNextDailyRevenueGoal(1000, 1000, true) == 1800);
 static_assert(CalculateNextDailyRevenueGoal(1800, 1000, true) == 2600);
-static_assert(CalculateNextDailyRevenueGoal(1000, 1000, false) == 1900);
+static_assert(CalculateNextDailyRevenueGoal(1000, 4000, true) == 4200);
+static_assert(CalculateNextDailyRevenueGoal(1000, 4000, false) == 4600);
 
 int CurrentOrderBaseReward() {
     if (gCurrentDialogueCategory < 0
@@ -3389,6 +3493,7 @@ void StartNextDay(ULONGLONG now) {
         gEarnedMoney,
         gCurrentDayGoalMet);
     ++gCurrentDay;
+    gCurrentDayNpcCount = 0;
     gDayRevenue = 0;
     for (long long& revenue : gDayMenuRevenue) {
         revenue = 0;
@@ -3487,6 +3592,12 @@ void DrawNarration(HDC dc, const Layout& layout) {
             dc, layout, nameX, nameY, gCurrentNarrationName.c_str(),
             nameHeight, RGB(0xff, 0xff, 0xff), kNarrationFontName);
 
+        const BYTE previousTextOpacity = gBitmapTextOutputOpacity;
+        if (gIsNarrationHistoryReplay) {
+            gBitmapTextOutputOpacity = static_cast<BYTE>(std::lround(
+                previousTextOpacity * 0.70));
+        }
+
         const double fullTextWidth = MeasureBitmapText(
             gNarrationBitmapFont, gCurrentNarrationText.c_str(),
             dialogueHeight);
@@ -3533,6 +3644,7 @@ void DrawNarration(HDC dc, const Layout& layout) {
             gNarrationParticleProcessedLength = visibleLength;
             DrawNarrationParticles(dc, layout);
         }
+        gBitmapTextOutputOpacity = previousTextOpacity;
         return;
     }
 
@@ -3593,6 +3705,9 @@ void DrawNarration(HDC dc, const Layout& layout) {
         dialogueFont = static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
     }
     SelectObject(dc, dialogueFont);
+    if (gIsNarrationHistoryReplay) {
+        SetTextColor(dc, RGB(0xb3, 0xb3, 0xb3));
+    }
     const POINT textPosition = LogicalPoint(
         layout,
         kNarrationBoxX + 24,
@@ -3755,6 +3870,48 @@ void DrawCenteredText(
     DeleteObject(font);
 }
 
+void ReleaseOpacityBuffer() {
+    if (gOpacityBufferDc != nullptr
+        && gOpacityBufferOldBitmap != nullptr) {
+        SelectObject(gOpacityBufferDc, gOpacityBufferOldBitmap);
+    }
+    if (gOpacityBufferBitmap != nullptr) {
+        DeleteObject(gOpacityBufferBitmap);
+    }
+    if (gOpacityBufferDc != nullptr) {
+        DeleteDC(gOpacityBufferDc);
+    }
+    gOpacityBufferDc = nullptr;
+    gOpacityBufferBitmap = nullptr;
+    gOpacityBufferOldBitmap = nullptr;
+    gOpacityBufferWidth = 0;
+    gOpacityBufferHeight = 0;
+}
+
+bool EnsureOpacityBuffer(HDC referenceDc, int width, int height) {
+    if (gOpacityBufferDc != nullptr
+        && gOpacityBufferBitmap != nullptr
+        && gOpacityBufferWidth >= width
+        && gOpacityBufferHeight >= height) {
+        return true;
+    }
+    ReleaseOpacityBuffer();
+    gOpacityBufferDc = CreateCompatibleDC(referenceDc);
+    if (gOpacityBufferDc == nullptr) {
+        return false;
+    }
+    gOpacityBufferBitmap = CreateCompatibleBitmap(referenceDc, width, height);
+    if (gOpacityBufferBitmap == nullptr) {
+        ReleaseOpacityBuffer();
+        return false;
+    }
+    gOpacityBufferOldBitmap = SelectObject(
+        gOpacityBufferDc, gOpacityBufferBitmap);
+    gOpacityBufferWidth = width;
+    gOpacityBufferHeight = height;
+    return true;
+}
+
 template<typename DrawFunction>
 void DrawWithOpacity(
     HDC dc,
@@ -3771,27 +3928,22 @@ void DrawWithOpacity(
 
     const int width = area.right - area.left;
     const int height = area.bottom - area.top;
-    HDC layerDc = CreateCompatibleDC(dc);
-    if (layerDc == nullptr) {
+    if (!EnsureOpacityBuffer(dc, width, height)) {
         drawFunction(dc);
         return;
     }
-    HBITMAP layerBitmap = CreateCompatibleBitmap(dc, width, height);
-    if (layerBitmap == nullptr) {
-        DeleteDC(layerDc);
-        drawFunction(dc);
-        return;
-    }
-    HGDIOBJ oldBitmap = SelectObject(layerDc, layerBitmap);
-    BitBlt(layerDc, 0, 0, width, height, dc, area.left, area.top, SRCCOPY);
-    SetViewportOrgEx(layerDc, -area.left, -area.top, nullptr);
+    BitBlt(
+        gOpacityBufferDc, 0, 0, width, height,
+        dc, area.left, area.top, SRCCOPY);
+    SetViewportOrgEx(
+        gOpacityBufferDc, -area.left, -area.top, nullptr);
     const double previousTextOpacity = gCapturedTextOpacity;
     if (gCaptureBitmapTextCommands) {
         gCapturedTextOpacity *= opacity / 255.0;
     }
-    drawFunction(layerDc);
+    drawFunction(gOpacityBufferDc);
     gCapturedTextOpacity = previousTextOpacity;
-    SetViewportOrgEx(layerDc, 0, 0, nullptr);
+    SetViewportOrgEx(gOpacityBufferDc, 0, 0, nullptr);
 
     const BLENDFUNCTION blend{AC_SRC_OVER, 0, opacity, 0};
     AlphaBlend(
@@ -3800,16 +3952,13 @@ void DrawWithOpacity(
         area.top,
         width,
         height,
-        layerDc,
+        gOpacityBufferDc,
         0,
         0,
         width,
         height,
         blend);
 
-    SelectObject(layerDc, oldBitmap);
-    DeleteObject(layerBitmap);
-    DeleteDC(layerDc);
 }
 
 double NarrationBoxOpacity() {
@@ -4827,6 +4976,7 @@ void StartPreparationScreenTransition() {
         revenue = 0;
     }
     gCurrentDay = 1;
+    gCurrentDayNpcCount = 0;
     gDailyRevenueGoal = kInitialDailyRevenueGoal;
     gCurrentDayGoalMet = false;
     gDailyGoalFailureCount = 0;
@@ -4902,6 +5052,7 @@ void CancelCurrentGameAndReturnToTitle(ULONGLONG now) {
         revenue = 0;
     }
     gCurrentDay = 1;
+    gCurrentDayNpcCount = 0;
     gDailyRevenueGoal = kInitialDailyRevenueGoal;
     gCurrentDayGoalMet = false;
     gDailyGoalFailureCount = 0;
@@ -4946,6 +5097,7 @@ void ReturnToMainScreen(ULONGLONG now) {
         revenue = 0;
     }
     gCurrentDay = 1;
+    gCurrentDayNpcCount = 0;
     gDailyRevenueGoal = kInitialDailyRevenueGoal;
     gCurrentDayGoalMet = false;
     gDailyGoalFailureCount = 0;
@@ -5269,7 +5421,10 @@ double NpcVerticalMotionOffset() {
         constexpr double pi = 3.14159265358979323846;
         return -kEmptySubmissionJumpHeight * std::sin(jumpProgress * pi);
     }
-    if (gIsNarrationActive && gIsNarrationTyping && !gWasEmptySubmission) {
+    if (gIsNarrationActive
+        && gIsNarrationTyping
+        && !gIsNarrationHistoryReplay
+        && !gWasEmptySubmission) {
         const double elapsed = (
             GetTickCount64() - gNarrationStartTime) / 1000.0;
         const double bounceProgress = std::fmod(
@@ -5668,11 +5823,6 @@ void DrawTutorialScreen(HDC dc, const RECT& client) {
     drawText(kTutorialContentLeft + 4, 386, 390, 22,
         L"3.  주문에 따라 재료를 클릭하여 조리한다.", 14.0);
 
-    constexpr wchar_t materialLabels[kMaterialBinCount][8] = {
-        L"또띠아", L"양상추", L"파프리카", L"당근", L"에그마요",
-        L"토마토", L"민트초코", L"김과 밥", L"우엉", L"단무지",
-        L"게살", L"시금치", L"딸기", L"초콜릿"
-    };
     for (int index = 0; index < kMaterialBinCount; ++index) {
         const int row = index / 7;
         const int column = index % 7;
@@ -5681,7 +5831,7 @@ void DrawTutorialScreen(HDC dc, const RECT& client) {
         const RECT imageArea = LogicalRect(layout, x + 9, y, 24, 24);
         DrawMaterialImage(dc, index, imageArea);
         RECT labelArea{x - 4, y + 25, x + 50, y + 44};
-        DrawCenteredText(dc, layout, labelArea, materialLabels[index],
+        DrawCenteredText(dc, layout, labelArea, kMaterialDisplayNames[index],
             11.0, RGB(0xdd, 0xdd, 0xdd));
     }
 
@@ -5704,6 +5854,79 @@ void DrawTutorialScreen(HDC dc, const RECT& client) {
     drawText(kTutorialCheckboxLeft + kTutorialCheckboxSize + 6,
         kTutorialCheckboxTop - 5, 180, 20,
         L"다음부터는 표시하지 않기", 11.0);
+}
+
+void DrawMaterialNameTooltip(HDC dc, const Layout& layout) {
+    if (gMaterialTooltipIndex < 0
+        || gMaterialTooltipIndex >= kMaterialBinCount
+        || gMaterialTooltipHoverStartTime == 0) {
+        return;
+    }
+    const double fadeProgress = std::clamp(
+        (GetTickCount64() - gMaterialTooltipHoverStartTime)
+            / static_cast<double>(kMaterialTooltipFadeMilliseconds),
+        0.0, 1.0);
+    const double progress = gIsMaterialTooltipFadingOut
+        ? 1.0 - fadeProgress
+        : fadeProgress;
+    if (progress <= 0.0) {
+        return;
+    }
+
+    const int row = gMaterialTooltipIndex / kMaterialBinColumns;
+    const int column = gMaterialTooltipIndex % kMaterialBinColumns;
+    const double totalGap = kMaterialBinColumnGap
+        * (kMaterialBinColumns - 1);
+    const double binWidth =
+        (kPlayAreaSize - totalGap) / kMaterialBinColumns;
+    const double centerX = kPlayAreaX
+        + column * (binWidth + kMaterialBinColumnGap)
+        + binWidth * 0.5;
+    const int rowTop = ((row == 0)
+        ? kMaterialBinTop
+        : kMaterialBinFirstRowBottom + kMaterialBinRowGap)
+        + kMaterialBinVerticalOffset;
+    const int rowBottom = ((row == 0)
+        ? kMaterialBinFirstRowBottom
+        : kPlayAreaSize)
+        + kMaterialBinVerticalOffset;
+    const double centerY = kPlayAreaY + (rowTop + rowBottom) * 0.5;
+    const double textWidth = MeasureBitmapText(
+        gUiBitmapFont,
+        kMaterialDisplayNames[gMaterialTooltipIndex],
+        kMaterialTooltipFontHeight);
+    const int boxWidth = static_cast<int>(std::ceil(textWidth))
+        + kMaterialTooltipPadding * 2;
+    const int boxHeight = static_cast<int>(
+        std::ceil(kMaterialTooltipFontHeight))
+        + kMaterialTooltipPadding * 2;
+    const int boxX = static_cast<int>(std::lround(centerX - boxWidth * 0.5));
+    // 소켓 하단 경계가 툴팁 박스의 세로 중앙을 지나도록 절반 겹친다.
+    const int socketBottom = static_cast<int>(std::lround(
+        centerY + kPngSocketSize * 0.5));
+    const int boxY = socketBottom - boxHeight / 2;
+    const RECT box = LogicalRect(
+        layout, boxX, boxY, boxWidth, boxHeight);
+    FillTranslucent(
+        dc,
+        box,
+        RGB(0x00, 0x00, 0x00),
+        static_cast<BYTE>(std::lround(
+            kMaterialTooltipBackgroundOpacity * progress)));
+
+    const BYTE previousTextOpacity = gBitmapTextOutputOpacity;
+    gBitmapTextOutputOpacity = static_cast<BYTE>(
+        std::lround(255.0 * progress));
+    DrawBitmapText(
+        dc,
+        layout,
+        boxX + kMaterialTooltipPadding,
+        boxY + kMaterialTooltipPadding,
+        kMaterialDisplayNames[gMaterialTooltipIndex],
+        kMaterialTooltipFontHeight,
+        RGB(0xff, 0xff, 0xff),
+        kDefaultUiFontName);
+    gBitmapTextOutputOpacity = previousTextOpacity;
 }
 
 void DrawGame(HDC dc, const RECT& client) {
@@ -5782,6 +6005,7 @@ void DrawGame(HDC dc, const RECT& client) {
     DrawMaterialBins(dc, layout);
     DrawPngSockets(dc, layout);
     DrawCuttingBoardAndClones(dc, layout);
+    DrawMaterialNameTooltip(dc, layout);
     RestoreDC(dc, tableDc);
 
     if (IsCookingStateActive() && gResetButtonOpacity > 0.001) {
@@ -5849,6 +6073,7 @@ void DrawApplication(HDC dc, const RECT& client) {
 }
 
 void ReleaseBackBuffer() {
+    ReleaseOpacityBuffer();
     if (gBackBufferDc != nullptr && gBackBufferOldBitmap != nullptr) {
         SelectObject(gBackBufferDc, gBackBufferOldBitmap);
     }
@@ -5990,7 +6215,12 @@ void ApplyMasterSoundVolume() {
     for (const SoundEffectPlayer& sound : gSoundEffects) {
         SetSoundPlayerVolume(sound, 1.0);
     }
-    SetSoundPlayerVolume(gBusinessMusic, gBusinessMusicVolumeScale);
+    SetSoundPlayerVolume(
+        gBusinessMusic,
+        gBusinessMusicVolumeScale * gBusinessMusicPlayerMix[0]);
+    SetSoundPlayerVolume(
+        gBusinessMusicAlternate,
+        gBusinessMusicVolumeScale * gBusinessMusicPlayerMix[1]);
 }
 
 void OpenSoundPlayer(SoundEffectPlayer& sound) {
@@ -6027,6 +6257,23 @@ void InitializeSoundSystem(HWND notificationWindow) {
         OpenSoundPlayer(sound);
     }
     OpenSoundPlayer(gBusinessMusic);
+    OpenSoundPlayer(gBusinessMusicAlternate);
+    if (gBusinessMusic.isOpen && gBusinessMusicAlternate.isOpen) {
+        mciSendStringW(
+            L"set bgm_business time format milliseconds",
+            nullptr, 0, nullptr);
+        mciSendStringW(
+            L"set bgm_business_alt time format milliseconds",
+            nullptr, 0, nullptr);
+        wchar_t lengthText[32]{};
+        if (mciSendStringW(
+                L"status bgm_business length",
+                lengthText, static_cast<UINT>(std::size(lengthText)), nullptr)
+            == 0) {
+            gBusinessMusicLengthMilliseconds = _wcstoui64(
+                lengthText, nullptr, 10);
+        }
+    }
     ApplyMasterSoundVolume();
     SoundEffectPlayer& clickSound = gSoundEffects[
         static_cast<size_t>(SoundEffect::PlayerClick)];
@@ -6050,6 +6297,12 @@ void ShutdownSoundSystem() {
             + std::wstring(gBusinessMusic.alias);
         mciSendStringW(command.c_str(), nullptr, 0, nullptr);
         gBusinessMusic.isOpen = false;
+    }
+    if (gBusinessMusicAlternate.isOpen) {
+        const std::wstring command = L"close "
+            + std::wstring(gBusinessMusicAlternate.alias);
+        mciSendStringW(command.c_str(), nullptr, 0, nullptr);
+        gBusinessMusicAlternate.isOpen = false;
     }
     gSoundNotificationWindow = nullptr;
     gPlayerClickDeviceId = 0;
@@ -6091,10 +6344,21 @@ void StartBusinessMusic() {
     }
     gBusinessMusicVolumeScale = 1.0;
     gIsBusinessMusicFadingOut = false;
-    SetSoundPlayerVolume(gBusinessMusic, 1.0);
+    gBusinessMusicActivePlayer = 0;
+    gBusinessMusicPlayerMix[0] = 1.0;
+    gBusinessMusicPlayerMix[1] = 0.0;
+    gIsBusinessMusicLoopCrossfading = false;
+    gBusinessMusicCrossfadeStep = -1;
+    ApplyMasterSoundVolume();
+    mciSendStringW(L"stop bgm_business", nullptr, 0, nullptr);
+    mciSendStringW(L"stop bgm_business_alt", nullptr, 0, nullptr);
     const std::wstring command = L"play "
-        + std::wstring(gBusinessMusic.alias) + L" from 0 repeat";
+        + std::wstring(gBusinessMusic.alias) + L" from 0"
+        + (gBusinessMusicLengthMilliseconds
+                > kBusinessMusicLoopCrossfadeMilliseconds
+            && gBusinessMusicAlternate.isOpen ? L"" : L" repeat");
     mciSendStringW(command.c_str(), nullptr, 0, nullptr);
+    gBusinessMusicPlaybackStartTime = GetTickCount64();
     gIsBusinessMusicPlaying = true;
 }
 
@@ -6108,17 +6372,84 @@ void BeginBusinessMusicFadeOut(ULONGLONG now) {
 }
 
 void StopBusinessMusic() {
-    if (gBusinessMusic.isOpen) {
-        const std::wstring command = L"stop "
-            + std::wstring(gBusinessMusic.alias);
-        mciSendStringW(command.c_str(), nullptr, 0, nullptr);
-    }
+    mciSendStringW(L"stop bgm_business", nullptr, 0, nullptr);
+    mciSendStringW(L"stop bgm_business_alt", nullptr, 0, nullptr);
     gIsBusinessMusicPlaying = false;
     gIsBusinessMusicFadingOut = false;
+    gIsBusinessMusicLoopCrossfading = false;
     gBusinessMusicFadeStartTime = 0;
     gBusinessMusicFadeStep = -1;
+    gBusinessMusicPlaybackStartTime = 0;
+    gBusinessMusicCrossfadeStartTime = 0;
+    gBusinessMusicCrossfadeStep = -1;
+    gBusinessMusicActivePlayer = 0;
     gBusinessMusicVolumeScale = 1.0;
-    SetSoundPlayerVolume(gBusinessMusic, 1.0);
+    gBusinessMusicPlayerMix[0] = 1.0;
+    gBusinessMusicPlayerMix[1] = 0.0;
+    ApplyMasterSoundVolume();
+}
+
+void UpdateBusinessMusicLoop(ULONGLONG now) {
+    if (!gIsBusinessMusicPlaying
+        || gIsBusinessMusicFadingOut
+        || !gBusinessMusicAlternate.isOpen
+        || gBusinessMusicLengthMilliseconds
+            <= kBusinessMusicLoopCrossfadeMilliseconds) {
+        return;
+    }
+    SoundEffectPlayer* players[2]{
+        &gBusinessMusic, &gBusinessMusicAlternate};
+    if (!gIsBusinessMusicLoopCrossfading) {
+        const ULONGLONG elapsed = now - gBusinessMusicPlaybackStartTime;
+        if (elapsed < gBusinessMusicLengthMilliseconds
+                - kBusinessMusicLoopCrossfadeMilliseconds) {
+            return;
+        }
+        const int nextPlayer = 1 - gBusinessMusicActivePlayer;
+        gBusinessMusicPlayerMix[nextPlayer] = 0.0;
+        SetSoundPlayerVolume(*players[nextPlayer], 0.0);
+        const std::wstring playCommand = L"play "
+            + std::wstring(players[nextPlayer]->alias) + L" from 0";
+        mciSendStringW(playCommand.c_str(), nullptr, 0, nullptr);
+        gBusinessMusicCrossfadeStartTime = now;
+        gBusinessMusicCrossfadeStep = -1;
+        gIsBusinessMusicLoopCrossfading = true;
+    }
+
+    const double progress = std::clamp(
+        (now - gBusinessMusicCrossfadeStartTime)
+            / static_cast<double>(kBusinessMusicLoopCrossfadeMilliseconds),
+        0.0, 1.0);
+    const int step = static_cast<int>(std::floor(progress * 10.0));
+    if (step != gBusinessMusicCrossfadeStep) {
+        gBusinessMusicCrossfadeStep = step;
+        const int nextPlayer = 1 - gBusinessMusicActivePlayer;
+        gBusinessMusicPlayerMix[gBusinessMusicActivePlayer] = 1.0 - progress;
+        gBusinessMusicPlayerMix[nextPlayer] = progress;
+        // 교차 재생 중에는 BGM 두 장치만 변경한다. 모든 효과음 장치에
+        // 동기식 MCI 명령을 반복하면 UI 스레드와 화면 갱신이 멈춘다.
+        SetSoundPlayerVolume(
+            *players[gBusinessMusicActivePlayer],
+            gBusinessMusicVolumeScale
+                * gBusinessMusicPlayerMix[gBusinessMusicActivePlayer]);
+        SetSoundPlayerVolume(
+            *players[nextPlayer],
+            gBusinessMusicVolumeScale
+                * gBusinessMusicPlayerMix[nextPlayer]);
+    }
+    if (progress >= 1.0) {
+        const int previousPlayer = gBusinessMusicActivePlayer;
+        const int nextPlayer = 1 - previousPlayer;
+        const std::wstring stopCommand = L"stop "
+            + std::wstring(players[previousPlayer]->alias);
+        mciSendStringW(stopCommand.c_str(), nullptr, 0, nullptr);
+        gBusinessMusicPlayerMix[previousPlayer] = 0.0;
+        gBusinessMusicPlayerMix[nextPlayer] = 1.0;
+        gBusinessMusicActivePlayer = nextPlayer;
+        gBusinessMusicPlaybackStartTime = gBusinessMusicCrossfadeStartTime;
+        gIsBusinessMusicLoopCrossfading = false;
+        gBusinessMusicCrossfadeStep = -1;
+    }
 }
 
 void UpdateBusinessMusicFadeOut(ULONGLONG now) {
@@ -6138,14 +6469,18 @@ void UpdateBusinessMusicFadeOut(ULONGLONG now) {
             - static_cast<double>(fadeStep)
                 / kBusinessMusicFadeOutSteps;
         SetSoundPlayerVolume(
-            gBusinessMusic, gBusinessMusicVolumeScale);
+            gBusinessMusic,
+            gBusinessMusicVolumeScale * gBusinessMusicPlayerMix[0]);
+        SetSoundPlayerVolume(
+            gBusinessMusicAlternate,
+            gBusinessMusicVolumeScale * gBusinessMusicPlayerMix[1]);
     }
     if (progress >= 1.0) {
-        const std::wstring command = L"stop "
-            + std::wstring(gBusinessMusic.alias);
-        mciSendStringW(command.c_str(), nullptr, 0, nullptr);
+        mciSendStringW(L"stop bgm_business", nullptr, 0, nullptr);
+        mciSendStringW(L"stop bgm_business_alt", nullptr, 0, nullptr);
         gIsBusinessMusicPlaying = false;
         gIsBusinessMusicFadingOut = false;
+        gIsBusinessMusicLoopCrossfading = false;
     }
 }
 
@@ -6571,6 +6906,11 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
         gHoveredMoneyTooltip = MoneyTooltipKind::None;
         gTrophyInsufficientFundsStartTime = 0;
         gIsTableHovered = false;
+        if (gHoveredPngSocket >= 0) {
+            gMaterialTooltipIndex = gHoveredPngSocket;
+            gMaterialTooltipHoverStartTime = GetTickCount64();
+            gIsMaterialTooltipFadingOut = true;
+        }
         gHoveredPngSocket = -1;
         gHoveredTitleButton = -1;
         SetCursor(LoadCursor(nullptr, IDC_ARROW));
@@ -6584,6 +6924,7 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
                 return 0;
             }
             gLastAnimationTickTime = now;
+            UpdateBusinessMusicLoop(now);
             UpdateBusinessMusicFadeOut(now);
 
             if (gIsTrophyHovered
@@ -6822,7 +7163,8 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
                             }
                         }
                         gNarrationVisibleLength = nextVisibleLength;
-                        if (revealedNonWhitespace) {
+                        if (revealedNonWhitespace
+                            && gNarrationTypingSoundEnabled) {
                             PlaySoundEffect(SoundEffect::NpcTalking);
                         }
                         visualChanged = true;
@@ -6841,7 +7183,7 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
                 && gNarrationCompletedTime != 0
                 && (now - gNarrationCompletedTime) / 1000.0
                     >= kNarrationAutoAdvanceSeconds) {
-                AdvanceNarration();
+                AdvanceNarration(false);
                 visualChanged = true;
             }
 
@@ -6882,11 +7224,30 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
                 const int previousHoveredSocket = gHoveredPngSocket;
                 gHoveredPngSocket = HitTestPngSocket();
                 if (gHoveredPngSocket != previousHoveredSocket) {
+                    if (gHoveredPngSocket >= 0) {
+                        gMaterialTooltipIndex = gHoveredPngSocket;
+                        gMaterialTooltipHoverStartTime = now;
+                        gIsMaterialTooltipFadingOut = false;
+                    } else if (previousHoveredSocket >= 0) {
+                        gMaterialTooltipIndex = previousHoveredSocket;
+                        gMaterialTooltipHoverStartTime = now;
+                        gIsMaterialTooltipFadingOut = true;
+                    }
                     gLastNarrationHoverSocket = -1;
                     if (gHoveredPngSocket >= 0
                         && !gIsHoverNarrationActive) {
                         TryStartHoverNarration(gHoveredPngSocket);
                     }
+                }
+                if (gMaterialTooltipIndex >= 0
+                    && now - gMaterialTooltipHoverStartTime
+                        < kMaterialTooltipFadeMilliseconds) {
+                    visualChanged = true;
+                } else if (gIsMaterialTooltipFadingOut) {
+                    gMaterialTooltipIndex = -1;
+                    gMaterialTooltipHoverStartTime = 0;
+                    gIsMaterialTooltipFadingOut = false;
+                    visualChanged = true;
                 }
                 for (int index = 0; index < kMaterialBinCount; ++index) {
                     const double targetScale = (index == gHoveredPngSocket)
